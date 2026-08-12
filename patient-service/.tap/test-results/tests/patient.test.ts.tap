@@ -1,0 +1,85 @@
+TAP version 14
+# Subtest: patient.service
+    # Subtest: validateSpecialty (unit)
+        # Subtest: URGENCE / ONCO / CARDIO / GENERAL
+            ok 1 - expected to throw
+            ok 2 - expect to not throw
+            ok 3 - expected to throw
+            ok 4 - expect to not throw
+            ok 5 - expect to not throw
+            ok 6 - expected to throw
+            ok 7 - expect to not throw
+            1..7
+        ok 1 - URGENCE / ONCO / CARDIO / GENERAL # time=19.171ms
+        
+        1..1
+    ok 1 - validateSpecialty (unit) # time=33.792ms
+    
+    # Subtest: patients CRUD (intégration mock)
+        # Subtest: 404 si patient inconnu
+            ok 1 - expected to reject
+            1..1
+        ok 1 - 404 si patient inconnu # time=24.275ms
+        
+        # Subtest: getPatient + specialty
+            ok 1 - should be equal
+            ok 2 - should be equal
+            1..2
+        ok 2 - getPatient + specialty # time=2.895ms
+        
+        # Subtest: getPatient charge ONCO / CARDIO / GENERAL
+            ok 1 - expected to resolve
+            ok 2 - expected to resolve
+            ok 3 - expected to resolve
+            1..3
+        ok 3 - getPatient charge ONCO / CARDIO / GENERAL # time=7.564ms
+        
+        # Subtest: listPatients avec filtres
+            ok 1 - should be equal
+            1..1
+        ok 4 - listPatients avec filtres # time=1.787ms
+        
+        # Subtest: createPatient URGENCE / GENERAL / ONCO / CARDIO
+            ok 1 - created all specialty patients
+            1..1
+        ok 5 - createPatient URGENCE / GENERAL / ONCO / CARDIO # time=5.373ms
+        
+        # Subtest: updatePatient OK
+            ok 1 - should be equal
+            1..1
+        ok 6 - updatePatient OK # time=4.857ms
+        
+        # Subtest: updatePatient 404
+            ok 1 - expected to reject
+            1..1
+        ok 7 - updatePatient 404 # time=3.304ms
+        
+        # Subtest: deletePatient refuse secrétaire
+            ok 1 - expected to reject
+            1..1
+        ok 8 - deletePatient refuse secrétaire # time=3.557ms
+        
+        # Subtest: deletePatient OK admin
+            ok 1 - should be equivalent
+            1..1
+        ok 9 - deletePatient OK admin # time=4.89ms
+        
+        # Subtest: getDashboardStats calcule occupancy
+            ok 1 - should be equal
+            ok 2 - should be equal
+            ok 3 - should be equal
+            1..3
+        ok 10 - getDashboardStats calcule occupancy # time=8.174ms
+        
+        # Subtest: listAuditLogs
+            ok 1 - should be equal
+            1..1
+        ok 11 - listAuditLogs # time=1.633ms
+        
+        1..11
+    ok 2 - patients CRUD (intégration mock) # time=85.918ms
+    
+    1..2
+ok 1 - patient.service # time=510.601ms
+
+1..1

@@ -86,7 +86,7 @@ export async function getPatient(id: string) {
   return { ...patient, medicalRecord: mr, specialty };
 }
 
-function validateSpecialty(service: ServiceType, data: SpecialtyData): void {
+export function validateSpecialty(service: ServiceType, data: SpecialtyData): void {
   if (service === 'URGENCE') {
     if (!data.arrivalTime || !data.triageLevel || !data.initialSeverity) {
       throw new AppError('Emergency fields required', 400);
@@ -275,6 +275,19 @@ export async function deletePatient(user: InternalUser, id: string, ip?: string)
 }
 
 export async function getDashboardStats() {
+  const CAPACITY: Record<string, number> = {
+    GENERAL: 40,
+    URGENCE: 30,
+    ONCOLOGIE: 40,
+    CARDIOLOGIE: 45,
+  };
+  const LABELS: Record<string, string> = {
+    GENERAL: 'Chirurgie générale',
+    URGENCE: 'Urgences',
+    ONCOLOGIE: 'Oncologie',
+    CARDIOLOGIE: 'Cardiologie',
+  };
+
   const byService = await getDb()('patients')
     .select('service')
     .count('* as count')
@@ -286,14 +299,51 @@ export async function getDashboardStats() {
     .count<{ count: string }>('* as count')
     .first();
 
+  const today = new Date().toISOString().slice(0, 10);
+  const admittedToday = await getDb()('patients')
+    .whereRaw('hospitalization_date::date = ?::date', [today])
+    .count<{ count: string }>('* as count')
+    .first();
+
+  const byServiceMap: Record<string, number> = Object.fromEntries(
+    (byService as Array<{ service: string; count: string | number }>).map((r) => [
+      r.service,
+      Number(r.count),
+    ])
+  );
+
+  const occupancy = (['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE'] as const).map((service) => {
+    const occupied = byServiceMap[service] || 0;
+    const capacity = CAPACITY[service];
+    const percent = capacity ? Math.round((occupied / capacity) * 100) : 0;
+    const available = Math.max(capacity - occupied, 0);
+    let load: 'Disponible' | 'Forte charge' | 'Saturé' = 'Disponible';
+    if (percent >= 90) load = 'Saturé';
+    else if (percent >= 70) load = 'Forte charge';
+    return {
+      service,
+      label: LABELS[service],
+      occupied,
+      capacity,
+      available,
+      percent,
+      load,
+    };
+  });
+
+  const totalBeds = occupancy.reduce((s, o) => s + o.capacity, 0);
+  const occupiedBeds = occupancy.reduce((s, o) => s + o.occupied, 0);
+
   const recent = await getDb()('patients').orderBy('created_at', 'desc').limit(5);
 
   return {
     total: Number(total?.count || 0),
     critical: Number(critical?.count || 0),
-    byService: Object.fromEntries(
-      byService.map((r: { service: string; count: string }) => [r.service, Number(r.count)])
-    ),
+    admittedToday: Number(admittedToday?.count || 0),
+    availableBeds: Math.max(totalBeds - occupiedBeds, 0),
+    totalBeds,
+    byService: byServiceMap,
+    occupancy,
     recent,
   };
 }

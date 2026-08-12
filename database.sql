@@ -6,6 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS cardiology_records CASCADE;
 DROP TABLE IF EXISTS oncology_records CASCADE;
 DROP TABLE IF EXISTS emergency_records CASCADE;
@@ -60,6 +61,15 @@ CREATE TABLE mfa_codes (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   code_hash VARCHAR(255) NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE password_reset_tokens (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash VARCHAR(255) NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()

@@ -1,12 +1,28 @@
 import jwt from 'jsonwebtoken';
 import type { JwtPayload } from './types';
 
+const DEV_JWT_FALLBACK = 'centaur-medical-jwt-dev-secret-key-32chars';
+const DEV_SERVICE_FALLBACK = 'centaur-internal-service-token-dev';
+
+function assertSecretOrDev(name: string, value: string | undefined, fallback: string): string {
+  if (value && value.length >= 32 && !value.startsWith('change-me')) {
+    return value;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(`${name} must be set to a strong secret in production (>= 32 chars)`);
+  }
+  if (!value || value.startsWith('change-me')) {
+    console.warn(`[security] Using DEV fallback for ${name}. Set it in .env before production.`);
+  }
+  return value && value.length >= 16 ? value : fallback;
+}
+
 export function getJwtSecret(): string {
-  return process.env.JWT_SECRET || 'centaur-medical-jwt-dev-secret-key-32chars';
+  return assertSecretOrDev('JWT_SECRET', process.env.JWT_SECRET, DEV_JWT_FALLBACK);
 }
 
 export function getServiceToken(): string {
-  return process.env.SERVICE_TOKEN || 'centaur-internal-service-token-dev';
+  return assertSecretOrDev('SERVICE_TOKEN', process.env.SERVICE_TOKEN, DEV_SERVICE_FALLBACK);
 }
 
 export function signToken(payload: JwtPayload, expiresIn?: string): string {

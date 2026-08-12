@@ -4,3 +4,6 @@ export * from './auth';
 export * from './middleware';
 export * from './http';
 export * from './reply';
+export * from './password';
+export * from './rateLimit';
+export * from './security';

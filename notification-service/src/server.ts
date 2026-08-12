@@ -63,6 +63,23 @@ service.post('/internal/emails/welcome', async (req, res) => {
   }
 });
 
+service.post('/internal/emails/password-reset', async (req, res) => {
+  try {
+    requireServiceToken(req.headers as Record<string, string | string[] | undefined>);
+    const body = z
+      .object({
+        userId: z.string().uuid(),
+        email: z.string().email(),
+        firstName: z.string(),
+        code: z.string().min(4),
+      })
+      .parse(parseBody(req));
+    reply(res, 200, await mailer.sendPasswordResetEmail(body));
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
 const port = Number(process.env.NOTIFICATION_PORT || 3003);
 createDb();
 service.start(port).then(() => {

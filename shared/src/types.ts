@@ -1,4 +1,13 @@
-export type RoleName = 'ADMIN' | 'DIRECTION' | 'MEDECIN' | 'SECRETAIRE';
+export type SystemRoleName = 'ADMIN' | 'DIRECTION' | 'MEDECIN' | 'SECRETAIRE';
+/** Role name stored in DB / JWT (system roles + custom). */
+export type RoleName = SystemRoleName | (string & {});
+
+export const SYSTEM_ROLE_NAMES: SystemRoleName[] = [
+  'ADMIN',
+  'DIRECTION',
+  'MEDECIN',
+  'SECRETAIRE',
+];
 
 export type ServiceType = 'GENERAL' | 'URGENCE' | 'ONCOLOGIE' | 'CARDIOLOGIE';
 
@@ -19,6 +28,24 @@ export type Permission =
   | 'audit:read'
   | 'reports:read';
 
+export const ALL_PERMISSIONS: Permission[] = [
+  'patients:read',
+  'patients:create',
+  'patients:update',
+  'patients:delete',
+  'service:general',
+  'service:urgence',
+  'service:oncologie',
+  'service:cardiologie',
+  'users:read',
+  'users:create',
+  'users:update',
+  'users:delete',
+  'roles:manage',
+  'audit:read',
+  'reports:read',
+];
+
 export interface JwtPayload {
   sub: string;
   email: string;
@@ -26,6 +53,8 @@ export interface JwtPayload {
   permissions: Permission[];
   firstName: string;
   lastName: string;
+  /** Restricts short-lived tokens to a single flow. */
+  purpose?: 'ACCESS' | 'MFA' | 'CHANGE_PASSWORD' | 'PASSWORD_RESET';
 }
 
 export interface InternalUser {
@@ -44,7 +73,7 @@ export const ALL_SERVICE_PERMISSIONS: Permission[] = [
   'service:cardiologie',
 ];
 
-export const ROLE_PERMISSIONS: Record<RoleName, Permission[]> = {
+export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
   ADMIN: [
     'patients:read',
     'patients:create',
