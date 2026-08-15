@@ -6,6 +6,14 @@ const ROLE_PERMISSIONS = {
     'patients:create',
     'patients:update',
     'patients:delete',
+    'prescriptions:read',
+    'prescriptions:create',
+    'prescriptions:cancel',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:read_all',
+    'notifications:cancel',
     'service:general',
     'service:urgence',
     'service:oncologie',
@@ -20,6 +28,12 @@ const ROLE_PERMISSIONS = {
   ],
   DIRECTION: [
     'patients:read',
+    'prescriptions:read',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:read_all',
+    'notifications:cancel',
     'service:general',
     'service:urgence',
     'service:oncologie',
@@ -31,6 +45,13 @@ const ROLE_PERMISSIONS = {
     'patients:read',
     'patients:create',
     'patients:update',
+    'prescriptions:read',
+    'prescriptions:create',
+    'prescriptions:cancel',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:cancel',
     'service:general',
     'service:urgence',
     'service:oncologie',
@@ -39,10 +60,27 @@ const ROLE_PERMISSIONS = {
   SECRETAIRE: [
     'patients:read',
     'patients:create',
+    'prescriptions:read',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
     'service:general',
     'service:urgence',
     'service:oncologie',
     'service:cardiologie',
+  ],
+  MEDECIN_URGENCE: [
+    'patients:read',
+    'patients:create',
+    'patients:update',
+    'prescriptions:read',
+    'prescriptions:create',
+    'prescriptions:cancel',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:cancel',
+    'service:urgence',
   ],
 };
 
@@ -51,6 +89,14 @@ const PERMISSIONS = [
   ['patients:create', 'Create patients'],
   ['patients:update', 'Update patients'],
   ['patients:delete', 'Delete patients'],
+  ['prescriptions:read', 'Read prescriptions'],
+  ['prescriptions:create', 'Create prescriptions'],
+  ['prescriptions:cancel', 'Cancel prescriptions'],
+  ['medical_history:read', 'Read medical history'],
+  ['notifications:read', 'Read own notifications'],
+  ['notifications:create', 'Create notifications'],
+  ['notifications:read_all', 'Read all notifications'],
+  ['notifications:cancel', 'Cancel pending notifications'],
   ['service:general', 'Access general'],
   ['service:urgence', 'Access urgence'],
   ['service:oncologie', 'Access oncologie'],
@@ -70,6 +116,12 @@ const PERMISSIONS = [
 exports.seed = async function seed(knex) {
   await knex('audit_logs').del();
   await knex('notifications').del();
+  if (await knex.schema.hasTable('email_notifications')) {
+    await knex('email_notifications').del();
+  }
+  await knex('prescription_items').del();
+  await knex('prescriptions').del();
+  await knex('medical_history').del();
   await knex('cardiology_records').del();
   await knex('oncology_records').del();
   await knex('emergency_records').del();
@@ -82,7 +134,7 @@ exports.seed = async function seed(knex) {
   await knex('permissions').del();
   await knex('roles').del();
 
-  const roleNames = ['ADMIN', 'DIRECTION', 'MEDECIN', 'SECRETAIRE'];
+  const roleNames = ['ADMIN', 'DIRECTION', 'MEDECIN', 'SECRETAIRE', 'MEDECIN_URGENCE'];
   const roleRows = await knex('roles')
     .insert(roleNames.map((name) => ({ name })))
     .returning(['id', 'name']);

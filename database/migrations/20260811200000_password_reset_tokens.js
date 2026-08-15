@@ -2,6 +2,8 @@
  * @param {import('knex').Knex} knex
  */
 exports.up = async function up(knex) {
+  if (await knex.schema.hasTable('password_reset_tokens')) return;
+
   await knex.schema.createTable('password_reset_tokens', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');

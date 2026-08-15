@@ -6,7 +6,11 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS email_notifications CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
+DROP TABLE IF EXISTS prescription_items CASCADE;
+DROP TABLE IF EXISTS prescriptions CASCADE;
+DROP TABLE IF EXISTS medical_history CASCADE;
 DROP TABLE IF EXISTS cardiology_records CASCADE;
 DROP TABLE IF EXISTS oncology_records CASCADE;
 DROP TABLE IF EXISTS emergency_records CASCADE;
@@ -72,6 +76,7 @@ CREATE TABLE password_reset_tokens (
   token_hash VARCHAR(255) NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -86,6 +91,51 @@ CREATE TABLE patients (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE prescriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
+  doctor_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  prescribed_at TIMESTAMPTZ NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+  notes TEXT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_prescriptions_patient ON prescriptions(patient_id);
+CREATE INDEX idx_prescriptions_doctor ON prescriptions(doctor_id);
+CREATE INDEX idx_prescriptions_status ON prescriptions(status);
+CREATE INDEX idx_prescriptions_prescribed_at ON prescriptions(prescribed_at);
+
+CREATE TABLE prescription_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  prescription_id UUID NOT NULL REFERENCES prescriptions(id) ON DELETE CASCADE,
+  medication_name VARCHAR(255) NOT NULL,
+  dosage VARCHAR(120) NOT NULL,
+  frequency VARCHAR(120) NOT NULL,
+  duration VARCHAR(120) NOT NULL,
+  instructions TEXT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_prescription_items_rx ON prescription_items(prescription_id);
+
+CREATE TABLE medical_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  event_type VARCHAR(40) NOT NULL,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  service service_type NOT NULL,
+  doctor_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  summary VARCHAR(255) NOT NULL,
+  metadata JSONB NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  created_by UUID NULL REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_medical_history_patient ON medical_history(patient_id);
+CREATE INDEX idx_medical_history_occurred ON medical_history(occurred_at);
+CREATE INDEX idx_medical_history_service ON medical_history(service);
+CREATE INDEX idx_medical_history_type ON medical_history(event_type);
+CREATE INDEX idx_medical_history_patient_occurred ON medical_history(patient_id, occurred_at);
 
 CREATE TABLE medical_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -125,7 +175,7 @@ CREATE TABLE cardiology_records (
   blood_pressure VARCHAR(50) NOT NULL
 );
 
-CREATE TABLE notifications (
+CREATE TABLE email_notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
   type VARCHAR(50) NOT NULL,
@@ -135,6 +185,26 @@ CREATE TABLE notifications (
   status VARCHAR(30) NOT NULL DEFAULT 'SENT',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  patient_id UUID NULL REFERENCES patients(id) ON DELETE SET NULL,
+  type VARCHAR(40) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  sent_at TIMESTAMPTZ NULL,
+  read_at TIMESTAMPTZ NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+  created_by UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_notifications_recipient ON notifications(recipient_id);
+CREATE INDEX idx_notifications_status ON notifications(status);
+CREATE INDEX idx_notifications_scheduled ON notifications(scheduled_at);
+CREATE INDEX idx_notifications_patient ON notifications(patient_id);
 
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -161,6 +231,14 @@ INSERT INTO permissions (id, code, description) VALUES
   ('a0000001-0000-0000-0000-000000000002', 'patients:create', 'Create patients'),
   ('a0000001-0000-0000-0000-000000000003', 'patients:update', 'Update patients'),
   ('a0000001-0000-0000-0000-000000000004', 'patients:delete', 'Delete patients'),
+  ('a0000001-0000-0000-0000-000000000010', 'prescriptions:read', 'Read prescriptions'),
+  ('a0000001-0000-0000-0000-000000000011', 'prescriptions:create', 'Create prescriptions'),
+  ('a0000001-0000-0000-0000-000000000012', 'prescriptions:cancel', 'Cancel prescriptions'),
+  ('a0000001-0000-0000-0000-000000000013', 'medical_history:read', 'Read medical history'),
+  ('a0000001-0000-0000-0000-000000000014', 'notifications:read', 'Read own notifications'),
+  ('a0000001-0000-0000-0000-000000000015', 'notifications:create', 'Create notifications'),
+  ('a0000001-0000-0000-0000-000000000016', 'notifications:read_all', 'Read all notifications'),
+  ('a0000001-0000-0000-0000-000000000017', 'notifications:cancel', 'Cancel pending notifications'),
   ('a0000001-0000-0000-0000-000000000005', 'service:general', 'Access general'),
   ('a0000001-0000-0000-0000-000000000006', 'service:urgence', 'Access urgence'),
   ('a0000001-0000-0000-0000-000000000007', 'service:oncologie', 'Access oncologie'),
@@ -181,7 +259,9 @@ SELECT '11111111-1111-1111-1111-111111111111', id FROM permissions;
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT '22222222-2222-2222-2222-222222222222', id FROM permissions
 WHERE code IN (
-  'patients:read','service:general','service:urgence','service:oncologie','service:cardiologie',
+  'patients:read','prescriptions:read','medical_history:read',
+  'notifications:read','notifications:create','notifications:read_all','notifications:cancel',
+  'service:general','service:urgence','service:oncologie','service:cardiologie',
   'reports:read','audit:read'
 );
 
@@ -190,6 +270,8 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT '33333333-3333-3333-3333-333333333333', id FROM permissions
 WHERE code IN (
   'patients:read','patients:create','patients:update',
+  'prescriptions:read','prescriptions:create','prescriptions:cancel','medical_history:read',
+  'notifications:read','notifications:create','notifications:cancel',
   'service:general','service:urgence','service:oncologie','service:cardiologie'
 );
 
@@ -197,7 +279,8 @@ WHERE code IN (
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT '44444444-4444-4444-4444-444444444444', id FROM permissions
 WHERE code IN (
-  'patients:read','patients:create',
+  'patients:read','patients:create','prescriptions:read','medical_history:read',
+  'notifications:read','notifications:create',
   'service:general','service:urgence','service:oncologie','service:cardiologie'
 );
 

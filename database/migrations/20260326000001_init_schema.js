@@ -1,23 +1,34 @@
 /**
  * @param {import('knex').Knex} knex
+ * @param {string} name
+ * @param {(t: import('knex').Knex.CreateTableBuilder) => void} cb
+ */
+async function ensureTable(knex, name, cb) {
+  if (!(await knex.schema.hasTable(name))) {
+    await knex.schema.createTable(name, cb);
+  }
+}
+
+/**
+ * @param {import('knex').Knex} knex
  */
 exports.up = async function up(knex) {
   await knex.raw('CREATE EXTENSION IF NOT EXISTS pgcrypto');
 
-  await knex.schema.createTable('roles', (t) => {
+  await ensureTable(knex, 'roles', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.string('name', 50).notNullable().unique();
     t.timestamp('created_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('permissions', (t) => {
+  await ensureTable(knex, 'permissions', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.string('code', 80).notNullable().unique();
     t.string('description', 255);
     t.timestamp('created_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('role_permissions', (t) => {
+  await ensureTable(knex, 'role_permissions', (t) => {
     t.uuid('role_id').notNullable().references('id').inTable('roles').onDelete('CASCADE');
     t.uuid('permission_id')
       .notNullable()
@@ -27,7 +38,7 @@ exports.up = async function up(knex) {
     t.primary(['role_id', 'permission_id']);
   });
 
-  await knex.schema.createTable('users', (t) => {
+  await ensureTable(knex, 'users', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.string('email', 255).notNullable().unique();
     t.string('password_hash', 255).notNullable();
@@ -42,7 +53,7 @@ exports.up = async function up(knex) {
     t.timestamp('updated_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('mfa_codes', (t) => {
+  await ensureTable(knex, 'mfa_codes', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
     t.string('code_hash', 255).notNullable();
@@ -59,7 +70,7 @@ exports.up = async function up(knex) {
     END $$;
   `);
 
-  await knex.schema.createTable('patients', (t) => {
+  await ensureTable(knex, 'patients', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.string('patient_code', 20).notNullable().unique();
     t.string('first_name', 100).notNullable();
@@ -71,7 +82,7 @@ exports.up = async function up(knex) {
     t.timestamp('updated_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('medical_records', (t) => {
+  await ensureTable(knex, 'medical_records', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('patient_id')
       .notNullable()
@@ -84,7 +95,7 @@ exports.up = async function up(knex) {
     t.timestamp('updated_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('general_records', (t) => {
+  await ensureTable(knex, 'general_records', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('medical_record_id')
       .notNullable()
@@ -95,7 +106,7 @@ exports.up = async function up(knex) {
     t.text('notes').nullable();
   });
 
-  await knex.schema.createTable('emergency_records', (t) => {
+  await ensureTable(knex, 'emergency_records', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('medical_record_id')
       .notNullable()
@@ -108,7 +119,7 @@ exports.up = async function up(knex) {
     t.string('initial_severity', 100).notNullable();
   });
 
-  await knex.schema.createTable('oncology_records', (t) => {
+  await ensureTable(knex, 'oncology_records', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('medical_record_id')
       .notNullable()
@@ -121,7 +132,7 @@ exports.up = async function up(knex) {
     t.string('current_treatment', 255).notNullable();
   });
 
-  await knex.schema.createTable('cardiology_records', (t) => {
+  await ensureTable(knex, 'cardiology_records', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('medical_record_id')
       .notNullable()
@@ -134,7 +145,7 @@ exports.up = async function up(knex) {
     t.string('blood_pressure', 50).notNullable();
   });
 
-  await knex.schema.createTable('notifications', (t) => {
+  await ensureTable(knex, 'notifications', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('user_id').nullable().references('id').inTable('users').onDelete('SET NULL');
     t.string('type', 50).notNullable();
@@ -145,7 +156,7 @@ exports.up = async function up(knex) {
     t.timestamp('created_at', { useTz: true }).defaultTo(knex.fn.now());
   });
 
-  await knex.schema.createTable('audit_logs', (t) => {
+  await ensureTable(knex, 'audit_logs', (t) => {
     t.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
     t.uuid('user_id').nullable().references('id').inTable('users').onDelete('SET NULL');
     t.string('action', 50).notNullable();

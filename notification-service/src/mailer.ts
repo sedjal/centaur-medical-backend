@@ -131,7 +131,7 @@ export async function sendEmail(params: {
     console.log(`  Body:\n${params.body}`);
   }
 
-  await getDb()('notifications').insert({
+  await getDb()('email_notifications').insert({
     user_id: params.userId || null,
     type: params.type,
     recipient_email: params.to,

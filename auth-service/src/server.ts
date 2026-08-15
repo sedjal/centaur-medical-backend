@@ -197,7 +197,7 @@ service.patch('/users/:id', async (req, res) => {
   try {
     const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:update');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const body = z
       .object({
         firstName: z.string().min(1).optional(),
@@ -217,8 +217,8 @@ service.delete('/users/:id', async (req, res) => {
   try {
     const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:delete');
-    const id = (req as { params: { id: string } }).params.id;
-    await authService.deleteUser(id);
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    await authService.deleteUser(id, user.id);
     reply(res, 200, { ok: true });
   } catch (err) {
     handleRouteError(res, err);
@@ -265,7 +265,7 @@ service.put('/roles/:id/permissions', async (req, res) => {
   try {
     const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const body = z
       .object({
         permissions: z.array(z.string()),
@@ -282,7 +282,7 @@ service.delete('/roles/:id', async (req, res) => {
   try {
     const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     await authService.deleteRole(id);
     reply(res, 200, { ok: true });
   } catch (err) {

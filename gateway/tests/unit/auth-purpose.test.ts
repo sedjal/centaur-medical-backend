@@ -71,3 +71,17 @@ test('sans Bearer → Unauthorized', (t) => {
   t.throws(() => requireAuth(reqWithBearer(null)), /Unauthorized/);
   t.end();
 });
+
+test('JWT malformé → Invalid or expired token', (t) => {
+  t.throws(() => requireAuth(reqWithBearer('not-a-jwt')), /Invalid or expired token/);
+  t.end();
+});
+
+test('Authorization tableau Bearer accepté', (t) => {
+  const token = signToken(base('ACCESS'), '5m');
+  const user = requireAuth({
+    headers: { Authorization: [`Bearer ${token}`] },
+  });
+  t.equal(user.purpose, 'ACCESS');
+  t.end();
+});

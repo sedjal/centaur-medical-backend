@@ -7,7 +7,10 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "tsx tests/run-unit.ts",
-    "test:coverage": "c8 --check-coverage --lines 20 --statements 20 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
+    "test:integration": "tsx tests/run-integration.ts",
+    "test:all": "tsx tests/run-unit.ts && tsx tests/run-integration.ts",
+    "test:coverage": "c8 --check-coverage --lines 70 --statements 70 --functions 70 --branches 70 --include \"src/**/*.ts\" --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-all-coverage.ts",
+    "test:coverage:unit": "c8 --check-coverage --lines 70 --statements 70 --functions 70 --branches 70 --include \"src/**/*.ts\" --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
   },
   "dependencies": {
     "@centaur/shared": "*",

@@ -7,6 +7,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "tsx tests/run-unit.ts",
+    "test:integration": "tsx tests/run-integration.ts",
+    "test:all": "tsx tests/run-unit.ts && tsx tests/run-integration.ts",
     "test:coverage": "c8 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
   },
   "dependencies": {

@@ -7,19 +7,16 @@ import {
   type InternalUser,
   type ServiceType,
 } from '@centaur/shared';
+import { createMedicalHistoryEvent } from './medical-history.service';
 
 export interface SpecialtyData {
-  // GENERAL
   notes?: string | null;
-  // URGENCE
   arrivalTime?: string;
   triageLevel?: string;
   initialSeverity?: string;
-  // ONCOLOGIE
   tumorType?: string;
   stage?: string;
   currentTreatment?: string;
-  // CARDIOLOGIE
   ecgResults?: string;
   restingHeartRate?: number;
   bloodPressure?: string;
@@ -34,23 +31,76 @@ export interface PatientInput {
   specialty: SpecialtyData;
 }
 
+type DbRow = Record<string, unknown>;
+
 async function nextPatientCode(): Promise<string> {
   const row = await getDb()('patients').count<{ count: string }>('* as count').first();
   const n = Number(row?.count || 0) + 124;
   return `PT-${String(n).padStart(6, '0')}`;
 }
 
-function assertServiceAccess(user: InternalUser, service: ServiceType): void {
+const ALL_SERVICES: ServiceType[] = ['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE'];
+
+export function allowedServices(user: InternalUser): ServiceType[] {
+  return ALL_SERVICES.filter((s) => user.permissions.includes(SERVICE_PERMISSION_MAP[s]));
+}
+
+export function assertServiceAccess(user: InternalUser, service: ServiceType): void {
   const perm = SERVICE_PERMISSION_MAP[service];
   assertPermission(user, perm);
 }
 
-export async function listPatients(filters?: {
-  service?: ServiceType;
-  search?: string;
-}) {
-  let q = getDb()('patients').select('*').orderBy('created_at', 'desc');
-  if (filters?.service) q = q.where('service', filters.service);
+export function validateHospitalizationDate(date: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || '').trim())) {
+    throw new AppError('Invalid hospitalization date', 400);
+  }
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+    throw new AppError('Invalid hospitalization date', 400);
+  }
+}
+
+/** Query `service` must be in the caller's scope; otherwise 403. Search never widens the scope. */
+export function resolveListScope(user: InternalUser, requested?: ServiceType): ServiceType[] {
+  const allowed = allowedServices(user);
+  if (!allowed.length) {
+    throw new AppError('Forbidden: no service scope', 403);
+  }
+  if (requested) {
+    if (!allowed.includes(requested)) {
+      throw new AppError(`Forbidden: missing permission ${SERVICE_PERMISSION_MAP[requested]}`, 403);
+    }
+    return [requested];
+  }
+  return allowed;
+}
+
+export function filterPatientsByScope<
+  T extends { service: string; first_name: string; last_name: string; patient_code: string }
+>(rows: T[], allowed: ServiceType[], search?: string): T[] {
+  let out = rows.filter((r) => allowed.includes(r.service as ServiceType));
+  if (search && search.trim()) {
+    const s = search.trim().toLowerCase();
+    out = out.filter(
+      (r) =>
+        r.first_name.toLowerCase().includes(s) ||
+        r.last_name.toLowerCase().includes(s) ||
+        r.patient_code.toLowerCase().includes(s)
+    );
+  }
+  return out;
+}
+
+export async function listPatients(
+  user: InternalUser,
+  filters?: {
+    service?: ServiceType;
+    search?: string;
+  }
+) {
+  assertPermission(user, 'patients:read');
+  const scope = resolveListScope(user, filters?.service);
+  let q = getDb()('patients').select('*').whereIn('service', scope).orderBy('created_at', 'desc');
   if (filters?.search) {
     const s = `%${filters.search}%`;
     q = q.where(function () {
@@ -75,15 +125,55 @@ async function loadSpecialty(medicalRecordId: string, service: ServiceType) {
   return getDb()('cardiology_records').where({ medical_record_id: medicalRecordId }).first();
 }
 
-export async function getPatient(id: string) {
+export function assertSpecialtyPresent(service: ServiceType, specialty: DbRow | null | undefined): void {
+  if (!specialty) {
+    const label =
+      service === 'GENERAL'
+        ? 'General record missing for patient'
+        : `Specialty record missing for service ${service}`;
+    throw new AppError(label, 500);
+  }
+}
+
+export function assertMedicalRecordIntegrity(
+  patient: DbRow,
+  medicalRecord: DbRow | null | undefined,
+  specialty: DbRow | null | undefined
+): void {
+  if (!medicalRecord) {
+    throw new AppError('Medical record missing for patient', 500);
+  }
+  if (medicalRecord.service !== patient.service) {
+    throw new AppError('Medical record service mismatch', 500);
+  }
+  assertSpecialtyPresent(patient.service as ServiceType, specialty);
+}
+
+async function assemblePatientDossier(patientId: string, patientRow?: DbRow) {
+  const patient = patientRow || (await getDb()('patients').where({ id: patientId }).first());
+  if (!patient) throw new AppError('Patient not found', 404);
+  const mr = await getDb()('medical_records').where({ patient_id: patientId }).first();
+  const specialty = mr
+    ? await loadSpecialty(String(mr.id), patient.service as ServiceType)
+    : null;
+  assertMedicalRecordIntegrity(patient, mr, specialty);
+  return { ...patient, medicalRecord: mr, specialty };
+}
+
+export async function getPatient(id: string, user: InternalUser, ip?: string) {
   const patient = await getDb()('patients').where({ id }).first();
   if (!patient) throw new AppError('Patient not found', 404);
-  const mr = await getDb()('medical_records').where({ patient_id: id }).first();
-  let specialty = null;
-  if (mr) {
-    specialty = await loadSpecialty(mr.id, patient.service as ServiceType);
-  }
-  return { ...patient, medicalRecord: mr, specialty };
+  assertServiceAccess(user, patient.service as ServiceType);
+  const dossier = await assemblePatientDossier(id, patient);
+  await writeAudit(
+    user,
+    'PATIENT_READ',
+    id,
+    `${patient.first_name} ${patient.last_name}`,
+    ip,
+    { service: patient.service }
+  );
+  return dossier;
 }
 
 export function validateSpecialty(service: ServiceType, data: SpecialtyData): void {
@@ -100,6 +190,9 @@ export function validateSpecialty(service: ServiceType, data: SpecialtyData): vo
   if (service === 'CARDIOLOGIE') {
     if (!data.ecgResults || data.restingHeartRate == null || !data.bloodPressure) {
       throw new AppError('Cardiology fields required', 400);
+    }
+    if (data.restingHeartRate <= 0) {
+      throw new AppError('Resting heart rate must be positive', 400);
     }
   }
 }
@@ -139,28 +232,50 @@ async function insertSpecialty(
   }
 }
 
-async function writeAudit(
+export type PatientAuditAction =
+  | 'PATIENT_READ'
+  | 'PATIENT_CREATE'
+  | 'PATIENT_UPDATE'
+  | 'PATIENT_DELETE';
+
+export function buildPatientAuditRow(
   user: InternalUser,
-  action: string,
+  action: PatientAuditAction,
   resourceId: string,
   patientName: string,
   ip?: string,
   details?: unknown
 ) {
-  await getDb()('audit_logs').insert({
+  return {
     user_id: user.id,
     action,
     resource: 'PATIENT',
     resource_id: resourceId,
     patient_name: patientName,
     ip_address: ip || null,
-    details: details ? JSON.stringify(details) : null,
-  });
+    details: details ?? null,
+  };
+}
+
+async function writeAudit(
+  user: InternalUser,
+  action: PatientAuditAction,
+  resourceId: string,
+  patientName: string,
+  ip?: string,
+  details?: unknown,
+  trx?: ReturnType<typeof getDb>
+) {
+  const db = trx || getDb();
+  await db('audit_logs').insert(
+    buildPatientAuditRow(user, action, resourceId, patientName, ip, details)
+  );
 }
 
 export async function createPatient(user: InternalUser, input: PatientInput, ip?: string) {
   assertPermission(user, 'patients:create');
   assertServiceAccess(user, input.service);
+  validateHospitalizationDate(input.hospitalizationDate);
   validateSpecialty(input.service, input.specialty);
 
   const code = await nextPatientCode();
@@ -187,19 +302,21 @@ export async function createPatient(user: InternalUser, input: PatientInput, ip?
       .returning('*');
 
     await insertSpecialty(trx as unknown as ReturnType<typeof getDb>, mr.id, input.service, input.specialty);
+
+    await writeAudit(
+      user,
+      'PATIENT_CREATE',
+      String(patient.id),
+      `${patient.first_name} ${patient.last_name}`,
+      ip,
+      { service: input.service },
+      trx as unknown as ReturnType<typeof getDb>
+    );
+
     return patient;
   });
 
-  await writeAudit(
-    user,
-    'CREATE',
-    result.id,
-    `${result.first_name} ${result.last_name}`,
-    ip,
-    { service: input.service }
-  );
-
-  return getPatient(result.id);
+  return assemblePatientDossier(String(result.id), result);
 }
 
 export async function updatePatient(
@@ -210,6 +327,7 @@ export async function updatePatient(
 ) {
   assertPermission(user, 'patients:update');
   assertServiceAccess(user, input.service);
+  validateHospitalizationDate(input.hospitalizationDate);
   validateSpecialty(input.service, input.specialty);
 
   const existing = await getDb()('patients').where({ id }).first();
@@ -243,18 +361,33 @@ export async function updatePatient(
     }
 
     await insertSpecialty(trx as unknown as ReturnType<typeof getDb>, mr.id, input.service, input.specialty);
+
+    await writeAudit(
+      user,
+      'PATIENT_UPDATE',
+      id,
+      `${input.firstName} ${input.lastName}`,
+      ip,
+      { service: input.service },
+      trx as unknown as ReturnType<typeof getDb>
+    );
+
+    await createMedicalHistoryEvent(
+      {
+        patientId: id,
+        eventType: 'RECORD_UPDATE',
+        occurredAt: new Date().toISOString(),
+        service: input.service,
+        doctorId: user.id,
+        createdBy: user.id,
+        summary: 'Modification du dossier médical',
+        metadata: { source: 'PATIENT_UPDATE' },
+      },
+      trx as unknown as ReturnType<typeof getDb>
+    );
   });
 
-  await writeAudit(
-    user,
-    'UPDATE',
-    id,
-    `${input.firstName} ${input.lastName}`,
-    ip,
-    { service: input.service }
-  );
-
-  return getPatient(id);
+  return assemblePatientDossier(id);
 }
 
 export async function deletePatient(user: InternalUser, id: string, ip?: string) {
@@ -263,18 +396,37 @@ export async function deletePatient(user: InternalUser, id: string, ip?: string)
   if (!existing) throw new AppError('Patient not found', 404);
   assertServiceAccess(user, existing.service as ServiceType);
 
-  await getDb()('patients').where({ id }).del();
-  await writeAudit(
-    user,
-    'DELETE',
-    id,
-    `${existing.first_name} ${existing.last_name}`,
-    ip
-  );
+  // RESTRICT: do not silently erase prescription history with the patient
+  const existingRx = await getDb()('prescriptions').where({ patient_id: id }).first();
+  if (existingRx) {
+    throw new AppError('Cannot delete patient with existing prescriptions', 409);
+  }
+
+  await getDb().transaction(async (trx) => {
+    await trx('patients').where({ id }).del();
+    await writeAudit(
+      user,
+      'PATIENT_DELETE',
+      id,
+      `${existing.first_name} ${existing.last_name}`,
+      ip,
+      { service: existing.service },
+      trx as unknown as ReturnType<typeof getDb>
+    );
+  });
+
   return { ok: true };
 }
 
-export async function getDashboardStats() {
+export function buildDashboardFromRows(
+  patients: Array<{
+    service: string;
+    status: string;
+    hospitalization_date: string | Date;
+    created_at?: string | Date;
+  }>,
+  allowed: ServiceType[]
+) {
   const CAPACITY: Record<string, number> = {
     GENERAL: 40,
     URGENCE: 30,
@@ -288,31 +440,14 @@ export async function getDashboardStats() {
     CARDIOLOGIE: 'Cardiologie',
   };
 
-  const byService = await getDb()('patients')
-    .select('service')
-    .count('* as count')
-    .groupBy('service');
+  const scoped = patients.filter((p) => allowed.includes(p.service as ServiceType));
+  const byServiceMap: Record<string, number> = {};
+  for (const s of allowed) byServiceMap[s] = 0;
+  for (const p of scoped) {
+    byServiceMap[p.service] = (byServiceMap[p.service] || 0) + 1;
+  }
 
-  const total = await getDb()('patients').count<{ count: string }>('* as count').first();
-  const critical = await getDb()('patients')
-    .where({ status: 'CRITICAL' })
-    .count<{ count: string }>('* as count')
-    .first();
-
-  const today = new Date().toISOString().slice(0, 10);
-  const admittedToday = await getDb()('patients')
-    .whereRaw('hospitalization_date::date = ?::date', [today])
-    .count<{ count: string }>('* as count')
-    .first();
-
-  const byServiceMap: Record<string, number> = Object.fromEntries(
-    (byService as Array<{ service: string; count: string | number }>).map((r) => [
-      r.service,
-      Number(r.count),
-    ])
-  );
-
-  const occupancy = (['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE'] as const).map((service) => {
+  const occupancy = allowed.map((service) => {
     const occupied = byServiceMap[service] || 0;
     const capacity = CAPACITY[service];
     const percent = capacity ? Math.round((occupied / capacity) * 100) : 0;
@@ -333,19 +468,33 @@ export async function getDashboardStats() {
 
   const totalBeds = occupancy.reduce((s, o) => s + o.capacity, 0);
   const occupiedBeds = occupancy.reduce((s, o) => s + o.occupied, 0);
-
-  const recent = await getDb()('patients').orderBy('created_at', 'desc').limit(5);
+  const today = new Date().toISOString().slice(0, 10);
+  const critical = scoped.filter((p) => p.status === 'CRITICAL').length;
+  const admittedToday = scoped.filter((p) => String(p.hospitalization_date).slice(0, 10) === today).length;
+  const recent = [...scoped]
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+    .slice(0, 5);
 
   return {
-    total: Number(total?.count || 0),
-    critical: Number(critical?.count || 0),
-    admittedToday: Number(admittedToday?.count || 0),
+    total: scoped.length,
+    critical,
+    admittedToday,
     availableBeds: Math.max(totalBeds - occupiedBeds, 0),
     totalBeds,
     byService: byServiceMap,
     occupancy,
     recent,
   };
+}
+
+export async function getDashboardStats(user: InternalUser) {
+  assertPermission(user, 'patients:read');
+  const allowed = allowedServices(user);
+  if (!allowed.length) {
+    throw new AppError('Forbidden: no service scope', 403);
+  }
+  const patients = await getDb()('patients').whereIn('service', allowed).select('*');
+  return buildDashboardFromRows(patients, allowed);
 }
 
 export async function listAuditLogs(limit = 50) {

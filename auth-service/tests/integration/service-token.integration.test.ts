@@ -1,21 +1,12 @@
 /**
  * INTÉGRATION HTTP — auth-service : requireServiceToken sur les routes publiques
- *
- * Vérifie que login / MFA / forgot / verify-reset-code / reset / change-required
- * retournent 401 si x-service-token est absent ou invalide.
- * Un token valide passe la porte (la logique métier renvoie une autre erreur
- * car la DB n'est pas branchée — on n'en a pas besoin ici).
  */
-process.env.JWT_SECRET = 'test-jwt-secret-key-at-least-32-chars-xx';
-process.env.NODE_ENV = 'test';
-process.env.SERVICE_TOKEN = 'auth-int-service-token-32charslongXX';
-
 import http from 'http';
 import test from 'tape';
 import restana from 'restana';
 import { requireServiceToken, reply, handleRouteError } from '@centaur/shared';
 
-const VALID_TOKEN = process.env.SERVICE_TOKEN as string;
+const VALID_TOKEN = 'auth-int-service-token-32charslongXX';
 
 // ---------------------------------------------------------------------------
 // Mini auth-service HTTP (uniquement les routes à tester ; pas de DB).
@@ -105,6 +96,10 @@ const ROUTES = [
 ];
 
 test('auth-service routes publiques : requireServiceToken', async (t) => {
+  process.env.JWT_SECRET = 'test-jwt-secret-key-at-least-32-chars-xx';
+  process.env.NODE_ENV = 'test';
+  process.env.SERVICE_TOKEN = VALID_TOKEN;
+
   const app = createAuthTestApp();
   const { port, close } = await listenApp(app);
 

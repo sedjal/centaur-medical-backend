@@ -13,7 +13,7 @@ import {
   createRateLimiter,
 } from '@centaur/shared';
 import { requireAuth } from './auth-guard';
-import { AUTH_URL, PATIENT_URL, hasPermission, proxy } from './proxy';
+import { AUTH_URL, PATIENT_URL, NOTIFICATION_URL, hasPermission, proxy } from './proxy';
 
 const service = restana({
   errorHandler: (err, _req, res) => {
@@ -270,7 +270,7 @@ service.patch('/api/users/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'users:update');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(AUTH_URL, 'PATCH', `/users/${id}`, {
       user,
       body: (req as { body?: unknown }).body,
@@ -285,7 +285,7 @@ service.delete('/api/users/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'users:delete');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(AUTH_URL, 'DELETE', `/users/${id}`, { user });
     reply(res, result.status, result.data);
   } catch (err) {
@@ -336,7 +336,7 @@ service.put('/api/roles/:id/permissions', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'roles:manage');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(AUTH_URL, 'PUT', `/roles/${id}/permissions`, {
       user,
       body: (req as { body?: unknown }).body,
@@ -351,7 +351,7 @@ service.delete('/api/roles/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'roles:manage');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(AUTH_URL, 'DELETE', `/roles/${id}`, { user });
     reply(res, result.status, result.data);
   } catch (err) {
@@ -379,8 +379,20 @@ service.get('/api/patients/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'patients:read');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/prescriptions', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'prescriptions:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}/prescriptions`, { user });
     reply(res, result.status, result.data);
   } catch (err) {
     handleError(res, err);
@@ -406,7 +418,7 @@ service.put('/api/patients/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'patients:update');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(PATIENT_URL, 'PUT', `/patients/${id}`, {
       user,
       body: (req as { body?: unknown }).body,
@@ -422,7 +434,7 @@ service.delete('/api/patients/:id', async (req, res) => {
   try {
     const user = requireAuth(req);
     requirePerm(user, 'patients:delete');
-    const id = (req as { params: { id: string } }).params.id;
+    const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(PATIENT_URL, 'DELETE', `/patients/${id}`, {
       user,
       ip: getClientIp(req),
@@ -438,6 +450,179 @@ service.get('/api/dashboard/stats', async (req, res) => {
     const user = requireAuth(req);
     requirePerm(user, 'patients:read');
     const result = await proxy(PATIENT_URL, 'GET', '/dashboard/stats', { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/prescriptions', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'prescriptions:read');
+    const q = (req as { query?: Record<string, string> }).query || {};
+    const result = await proxy(PATIENT_URL, 'GET', '/prescriptions', {
+      user,
+      query: {
+        patientId: q.patientId,
+        service: q.service,
+        status: q.status,
+        from: q.from,
+        to: q.to,
+      },
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/prescriptions/:id', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'prescriptions:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'GET', `/prescriptions/${id}`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/prescriptions', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'prescriptions:create');
+    const result = await proxy(PATIENT_URL, 'POST', '/prescriptions', {
+      user,
+      body: (req as { body?: unknown }).body,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.patch('/api/prescriptions/:id/cancel', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'prescriptions:cancel');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'PATCH', `/prescriptions/${id}/cancel`, {
+      user,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/medical-history', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'medical_history:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}/medical-history`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/medical-history', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'medical_history:read');
+    const q = (req as { query?: Record<string, string> }).query || {};
+    const result = await proxy(PATIENT_URL, 'GET', '/medical-history', {
+      user,
+      query: {
+        patientId: q.patientId,
+        service: q.service,
+        type: q.type,
+        from: q.from,
+        to: q.to,
+      },
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/notifications', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:read');
+    const q = (req as { query?: Record<string, string> }).query || {};
+    const result = await proxy(NOTIFICATION_URL, 'GET', '/notifications', {
+      user,
+      query: {
+        read: q.read,
+        status: q.status,
+        type: q.type,
+        patientId: q.patientId,
+      },
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/notifications/:id', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(NOTIFICATION_URL, 'GET', `/notifications/${id}`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/notifications', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:create');
+    const result = await proxy(NOTIFICATION_URL, 'POST', '/notifications', {
+      user,
+      body: (req as { body?: unknown }).body,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(NOTIFICATION_URL, 'PATCH', `/notifications/${id}/read`, {
+      user,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.patch('/api/notifications/:id/cancel', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:cancel');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(NOTIFICATION_URL, 'PATCH', `/notifications/${id}/cancel`, {
+      user,
+      ip: getClientIp(req),
+    });
     reply(res, result.status, result.data);
   } catch (err) {
     handleError(res, err);

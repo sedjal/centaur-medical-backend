@@ -5,3 +5,6 @@ import './unit/password.test';
 import './unit/permissions.test';
 import './unit/login.test';
 import './unit/mfa-purpose.test';
+import './unit/admin-reset.test';
+import './unit/auth.service.test';
+import './unit/middleware.test';

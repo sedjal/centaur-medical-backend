@@ -6,3 +6,4 @@
  * sont dans gateway/tests/integration/ — lance : npm run test:integration -w gateway
  */
 import './integration/service-token.integration.test';
+import './integration/auth-flow.integration.test';

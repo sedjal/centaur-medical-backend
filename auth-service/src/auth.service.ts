@@ -29,6 +29,31 @@ export interface UserRow {
   role_name: RoleName;
 }
 
+export const RESET_MAX_ATTEMPTS = 5;
+
+export function assertNotSelfDelete(callerId: string, targetId: string): void {
+  if (callerId === targetId) {
+    throw new AppError('Vous ne pouvez pas supprimer votre propre compte', 403);
+  }
+}
+
+export function assertNotLastActiveAdmin(otherActiveAdmins: number): void {
+  if (otherActiveAdmins < 1) {
+    throw new AppError('Impossible de supprimer le dernier administrateur', 403);
+  }
+}
+
+export function assertResetNotLocked(attempts: number): void {
+  if (attempts >= RESET_MAX_ATTEMPTS) {
+    throw new AppError('Trop de tentatives', 429);
+  }
+}
+
+export function nextResetAttempts(attempts: number): { next: number; locked: boolean } {
+  const next = attempts + 1;
+  return { next, locked: next >= RESET_MAX_ATTEMPTS };
+}
+
 async function notify(path: string, body: Record<string, unknown>): Promise<void> {
   const notifUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://127.0.0.1:3003';
   const serviceToken = process.env.SERVICE_TOKEN || 'centaur-internal-service-token-dev';
@@ -303,6 +328,7 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
     user_id: user.id,
     token_hash: tokenHash,
     expires_at: expiresAt,
+    attempts: 0,
   });
 
   try {
@@ -342,8 +368,19 @@ export async function verifyPasswordResetCode(
     throw new AppError('Code expiré', 400);
   }
 
+  const attempts = Number(row.attempts || 0);
+  if (attempts >= RESET_MAX_ATTEMPTS) {
+    await getDb()('password_reset_tokens').where({ id: row.id }).update({ used_at: getDb().fn.now() });
+    throw new AppError('Trop de tentatives', 429);
+  }
+
   const expected = hashOtp(code);
   if (expected !== row.token_hash) {
+    const { next, locked } = nextResetAttempts(attempts);
+    const patch: Record<string, unknown> = { attempts: next };
+    if (locked) patch.used_at = getDb().fn.now();
+    await getDb()('password_reset_tokens').where({ id: row.id }).update(patch);
+    if (locked) throw new AppError('Trop de tentatives', 429);
     throw new AppError('Code invalide ou expiré', 400);
   }
 
@@ -480,7 +517,29 @@ export async function updateUser(
   if (!n) throw new AppError('User not found', 404);
 }
 
-export async function deleteUser(id: string): Promise<void> {
+export async function deleteUser(id: string, callerId: string): Promise<void> {
+  assertNotSelfDelete(callerId, id);
+
+  const target = await getDb()
+    .table('users as u')
+    .join('roles as r', 'r.id', 'u.role_id')
+    .where('u.id', id)
+    .select('u.id', 'u.is_active', 'r.name as role_name')
+    .first();
+  if (!target) throw new AppError('User not found', 404);
+
+  if (target.role_name === 'ADMIN' && target.is_active) {
+    const row = await getDb()
+      .table('users as u')
+      .join('roles as r', 'r.id', 'u.role_id')
+      .where('r.name', 'ADMIN')
+      .where('u.is_active', true)
+      .whereNot('u.id', id)
+      .count<{ count: string }>('* as count')
+      .first();
+    assertNotLastActiveAdmin(Number(row?.count || 0));
+  }
+
   const n = await getDb()('users').where({ id }).del();
   if (!n) throw new AppError('User not found', 404);
 }

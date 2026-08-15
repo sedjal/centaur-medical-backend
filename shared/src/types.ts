@@ -16,6 +16,14 @@ export type Permission =
   | 'patients:create'
   | 'patients:update'
   | 'patients:delete'
+  | 'prescriptions:read'
+  | 'prescriptions:create'
+  | 'prescriptions:cancel'
+  | 'medical_history:read'
+  | 'notifications:read'
+  | 'notifications:create'
+  | 'notifications:read_all'
+  | 'notifications:cancel'
   | 'service:general'
   | 'service:urgence'
   | 'service:oncologie'
@@ -33,6 +41,14 @@ export const ALL_PERMISSIONS: Permission[] = [
   'patients:create',
   'patients:update',
   'patients:delete',
+  'prescriptions:read',
+  'prescriptions:create',
+  'prescriptions:cancel',
+  'medical_history:read',
+  'notifications:read',
+  'notifications:create',
+  'notifications:read_all',
+  'notifications:cancel',
   'service:general',
   'service:urgence',
   'service:oncologie',
@@ -79,6 +95,14 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'patients:create',
     'patients:update',
     'patients:delete',
+    'prescriptions:read',
+    'prescriptions:create',
+    'prescriptions:cancel',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:read_all',
+    'notifications:cancel',
     ...ALL_SERVICE_PERMISSIONS,
     'users:read',
     'users:create',
@@ -90,6 +114,12 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
   ],
   DIRECTION: [
     'patients:read',
+    'prescriptions:read',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:read_all',
+    'notifications:cancel',
     ...ALL_SERVICE_PERMISSIONS,
     'reports:read',
     'audit:read',
@@ -98,11 +128,22 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'patients:read',
     'patients:create',
     'patients:update',
+    'prescriptions:read',
+    'prescriptions:create',
+    'prescriptions:cancel',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
+    'notifications:cancel',
     ...ALL_SERVICE_PERMISSIONS,
   ],
   SECRETAIRE: [
     'patients:read',
     'patients:create',
+    'prescriptions:read',
+    'medical_history:read',
+    'notifications:read',
+    'notifications:create',
     ...ALL_SERVICE_PERMISSIONS,
   ],
 };

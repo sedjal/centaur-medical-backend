@@ -5,3 +5,4 @@ process.env.NODE_ENV = 'test';
 import './integration/auth-login.test';
 import './integration/auth-me.test';
 import './integration/authorization.test';
+import './integration/patient-isolation.integration.test';

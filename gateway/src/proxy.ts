@@ -8,6 +8,7 @@ import {
 
 const AUTH_URL = process.env.AUTH_SERVICE_URL || 'http://127.0.0.1:3001';
 const PATIENT_URL = process.env.PATIENT_SERVICE_URL || 'http://127.0.0.1:3002';
+const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://127.0.0.1:3003';
 
 export function buildIdentityHeaders(user?: JwtPayload): Record<string, string> {
   const headers: Record<string, string> = {
@@ -55,7 +56,7 @@ export async function proxy(
     timeout: 15000,
   };
 
-  const response = await axios(config);
+  const response = await axios.request(config);
   return { status: response.status, data: response.data };
 }
 
@@ -63,4 +64,4 @@ export function hasPermission(user: JwtPayload, permission: Permission): boolean
   return (user.permissions || []).includes(permission);
 }
 
-export { AUTH_URL, PATIENT_URL };
+export { AUTH_URL, PATIENT_URL, NOTIFICATION_URL };

@@ -1,6 +1,12 @@
 import knex, { Knex } from 'knex';
 
 let instance: Knex | null = null;
+/** Test-only override — never use in production code paths. */
+let testOverride: Knex | null = null;
+
+export function __setTestDb(db: Knex | null): void {
+  testOverride = db;
+}
 
 export function createDb(config?: {
   host?: string;
@@ -25,11 +31,13 @@ export function createDb(config?: {
 }
 
 export function getDb(): Knex {
+  if (testOverride) return testOverride;
   if (!instance) return createDb();
   return instance;
 }
 
 export async function destroyDb(): Promise<void> {
+  testOverride = null;
   if (instance) {
     await instance.destroy();
     instance = null;

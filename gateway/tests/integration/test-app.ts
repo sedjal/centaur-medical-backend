@@ -19,7 +19,12 @@ export type ProxyFn = (
   baseUrl: string,
   method: string,
   path: string,
-  options?: { user?: JwtPayload; body?: unknown }
+  options?: {
+    user?: JwtPayload;
+    body?: unknown;
+    query?: Record<string, string | undefined>;
+    ip?: string;
+  }
 ) => Promise<{ status: number; data: unknown }>;
 
 function requirePerm(user: JwtPayload, perm: Permission): void {
@@ -87,7 +92,75 @@ export function createTestGateway(proxyFn: ProxyFn) {
     try {
       const user = requireAuth(req);
       requirePerm(user, 'patients:read');
-      const result = await proxyFn('patient', 'GET', '/patients', { user });
+      const q = (req as { query?: Record<string, string> }).query || {};
+      const result = await proxyFn('patient', 'GET', '/patients', {
+        user,
+        query: { service: q.service, search: q.search },
+      });
+      reply(res, result.status, result.data);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  service.get('/api/patients/:id', async (req, res) => {
+    try {
+      const user = requireAuth(req);
+      requirePerm(user, 'patients:read');
+      const id = (req as { params: { id: string } }).params.id;
+      const result = await proxyFn('patient', 'GET', `/patients/${id}`, { user });
+      reply(res, result.status, result.data);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  service.post('/api/patients', async (req, res) => {
+    try {
+      const user = requireAuth(req);
+      requirePerm(user, 'patients:create');
+      const result = await proxyFn('patient', 'POST', '/patients', {
+        user,
+        body: (req as { body?: unknown }).body,
+      });
+      reply(res, result.status, result.data);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  service.put('/api/patients/:id', async (req, res) => {
+    try {
+      const user = requireAuth(req);
+      requirePerm(user, 'patients:update');
+      const id = (req as { params: { id: string } }).params.id;
+      const result = await proxyFn('patient', 'PUT', `/patients/${id}`, {
+        user,
+        body: (req as { body?: unknown }).body,
+      });
+      reply(res, result.status, result.data);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  service.delete('/api/patients/:id', async (req, res) => {
+    try {
+      const user = requireAuth(req);
+      requirePerm(user, 'patients:delete');
+      const id = (req as { params: { id: string } }).params.id;
+      const result = await proxyFn('patient', 'DELETE', `/patients/${id}`, { user });
+      reply(res, result.status, result.data);
+    } catch (err) {
+      handleError(res, err);
+    }
+  });
+
+  service.get('/api/dashboard/stats', async (req, res) => {
+    try {
+      const user = requireAuth(req);
+      requirePerm(user, 'patients:read');
+      const result = await proxyFn('patient', 'GET', '/dashboard/stats', { user });
       reply(res, result.status, result.data);
     } catch (err) {
       handleError(res, err);

@@ -2,7 +2,13 @@ export type RestanaRes = {
   statusCode?: number;
   setHeader: (k: string, v: string) => void;
   end: (chunk?: string) => void;
-  send?: (status: number | unknown, body?: unknown) => void;
+  /** Restana ResponseExtensions.send — signature differs from Express. */
+  send?: (
+    data?: unknown,
+    code?: number,
+    headers?: Record<string, string | number | string[]>,
+    cb?: () => void
+  ) => void;
 };
 
 export function reply(res: RestanaRes, status: number, body: unknown): void {

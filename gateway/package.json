@@ -9,13 +9,12 @@
     "test": "tsx tests/run-unit.ts",
     "test:integration": "tsx tests/run-integration.ts",
     "test:all": "tsx tests/run-unit.ts && tsx tests/run-integration.ts",
-    "test:coverage": "c8 --check-coverage --lines 50 --statements 50 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
+    "test:coverage": "c8 --check-coverage --lines 70 --statements 70 --functions 70 --branches 70 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
   },
   "dependencies": {
     "@centaur/shared": "*",
     "axios": "^1.6.7",
     "dotenv": "^16.4.1",
-    "helmet": "^7.1.0",
     "restana": "^4.9.9",
     "zod": "^3.22.4"
   },
