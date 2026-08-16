@@ -6,7 +6,7 @@ process.env.NODE_ENV = 'test';
 
 import test from 'tape';
 import { AppError, signToken, type JwtPayload } from '@centaur/shared';
-import { requireAuth } from '../../src/auth-guard';
+import { requireAuth, requireAuthSse } from '../../src/auth-guard';
 
 function base(purpose?: JwtPayload['purpose']): JwtPayload {
   return {
@@ -69,6 +69,29 @@ test('JWT sans purpose rejeté', (t) => {
 
 test('sans Bearer → Unauthorized', (t) => {
   t.throws(() => requireAuth(reqWithBearer(null)), /Unauthorized/);
+  t.end();
+});
+
+test('requireAuthSse: ACCESS via access_token query', (t) => {
+  const token = signToken(base('ACCESS'), '5m');
+  const user = requireAuthSse({
+    headers: {},
+    url: `/api/notifications/stream?access_token=${token}`,
+  });
+  t.equal(user.sub, 'u1');
+  t.end();
+});
+
+test('requireAuthSse: query token MFA refusé', (t) => {
+  const token = signToken(base('MFA'), '10m');
+  t.throws(
+    () =>
+      requireAuthSse({
+        headers: {},
+        url: `/api/notifications/stream?access_token=${token}`,
+      }),
+    /Invalid access token/
+  );
   t.end();
 });
 

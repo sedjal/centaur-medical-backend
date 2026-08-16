@@ -14,6 +14,7 @@
     "dev": "concurrently -n gateway,auth,patient,notif -c blue,green,yellow,magenta \"npm run dev -w gateway\" \"npm run dev -w auth-service\" \"npm run dev -w patient-service\" \"npm run dev -w notification-service\"",
     "build": "npm run build -w shared && npm run build -w gateway && npm run build -w auth-service && npm run build -w patient-service && npm run build -w notification-service",
     "test": "npm run test -w auth-service && npm run test -w patient-service && npm run test -w gateway && npm run test -w notification-service",
+    "test:all": "npm run test:all -w auth-service && npm run test:all -w patient-service && npm run test:all -w gateway && npm run test:all -w notification-service",
     "test:coverage": "npm run test:coverage -w auth-service && npm run test:coverage -w patient-service && npm run test:coverage -w gateway",
     "migrate": "knex migrate:latest --knexfile knexfile.js",
     "seed": "knex seed:run --knexfile knexfile.js",

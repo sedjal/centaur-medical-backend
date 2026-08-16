@@ -12,8 +12,11 @@ import {
   reply,
   handleRouteError,
   INTERNAL_HEADERS,
+  assertPermission,
 } from '@centaur/shared';
 import * as notificationService from '../../src/notification.service';
+import * as businessNotifications from '../../src/business-notifications';
+import * as sse from '../../src/notification-sse';
 import * as mailer from '../../src/mailer';
 
 export function createNotifTestApp() {
@@ -56,6 +59,31 @@ export function createNotifTestApp() {
     }
   });
 
+  const businessEventSchema = z.object({
+    kind: z.enum([
+      'PRESCRIPTION_CREATED',
+      'PRESCRIPTION_CANCELLED',
+      'PATIENT_CREATED',
+      'PATIENT_UPDATED',
+      'MEDICAL_HISTORY_RECORDED',
+    ]),
+    actorId: z.string().min(1),
+    patientId: z.string().min(1),
+    patientCode: z.string().min(1).optional(),
+    patientName: z.string().min(1).optional(),
+    service: z.enum(['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE']),
+  });
+
+  service.post('/internal/notifications/events', async (req, res) => {
+    try {
+      requireServiceToken(req.headers as Record<string, string | string[] | undefined>);
+      const body = businessEventSchema.parse(parseBody(req));
+      reply(res, 200, await businessNotifications.dispatchBusinessNotification(body));
+    } catch (err) {
+      handleRouteError(res, err);
+    }
+  });
+
   const createSchema = z.object({
     recipientId: z.string().min(1),
     patientId: z.string().min(1).optional().nullable(),
@@ -86,6 +114,16 @@ export function createNotifTestApp() {
         patientId: query.patientId,
       });
       reply(res, 200, await notificationService.listNotifications(user, filters));
+    } catch (err) {
+      handleRouteError(res, err);
+    }
+  });
+
+  service.get('/notifications/stream', async (req, res) => {
+    try {
+      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      assertPermission(user, 'notifications:read');
+      sse.addSseConnection(user.id, res as unknown as sse.SseSink, req);
     } catch (err) {
       handleRouteError(res, err);
     }

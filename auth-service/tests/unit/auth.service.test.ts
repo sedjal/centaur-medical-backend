@@ -447,6 +447,38 @@ test('auth.service: users CRUD + delete guards', async (t) => {
   t.end();
 });
 
+test('auth.service: listStaffDirectory — comptes actifs seulement', async (t) => {
+  installAuthDbMock({
+    users: [
+      {
+        id: 'u-on',
+        email: 'on@test.com',
+        first_name: 'Léa',
+        last_name: 'On',
+        role_id: 'r-med',
+        is_active: true,
+      },
+      {
+        id: 'u-off',
+        email: 'off@test.com',
+        first_name: 'Bo',
+        last_name: 'Off',
+        role_id: 'r-admin',
+        is_active: false,
+      },
+    ],
+  });
+  try {
+    const list = await authService.listStaffDirectory();
+    t.equal(list.length, 1);
+    t.equal(list[0].id, 'u-on');
+    t.equal(list[0].role, 'MEDECIN');
+  } finally {
+    restoreAuthDbMock();
+    t.end();
+  }
+});
+
 test('auth.service: roles + permissions', async (t) => {
   const { state } = installAuthDbMock({
     role_permissions: [{ role_id: 'r-med', permission_id: 'p-read' }],

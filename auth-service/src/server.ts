@@ -164,6 +164,16 @@ service.get('/auth/me', async (req, res) => {
   }
 });
 
+service.get('/users/directory', async (req, res) => {
+  try {
+    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    assertPermission(user, 'notifications:create');
+    reply(res, 200, await authService.listStaffDirectory());
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
 service.get('/users', async (req, res) => {
   try {
     const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);

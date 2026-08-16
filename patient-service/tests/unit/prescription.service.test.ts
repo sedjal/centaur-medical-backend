@@ -361,3 +361,29 @@ test('prescription list: filtres from/to + patientId', async (t) => {
     t.end();
   }
 });
+
+test('prescription create: émet une notification métier (hors rollback clinique)', async (t) => {
+  const events: unknown[] = [];
+  const { __setBusinessNotifyDispatcher, __resetBusinessNotifyDispatcher } = await import(
+    '../../src/business-notify'
+  );
+  __setBusinessNotifyDispatcher(async (e) => {
+    events.push(e);
+  });
+  installPatientDbMock(defaultPatientSeed());
+  try {
+    await createPrescription(urgRx(), {
+      patientId: 'p-urg-1',
+      prescribedAt: '2026-08-12T14:30:00.000Z',
+      medications: validMeds(),
+    });
+    t.equal(events.length, 1);
+    t.equal((events[0] as { kind: string }).kind, 'PRESCRIPTION_CREATED');
+    t.equal((events[0] as { actorId: string }).actorId, 'u-urg');
+    t.equal((events[0] as { patientId: string }).patientId, 'p-urg-1');
+  } finally {
+    __resetBusinessNotifyDispatcher();
+    restorePatientDbMock();
+    t.end();
+  }
+});

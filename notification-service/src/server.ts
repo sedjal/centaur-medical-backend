@@ -6,15 +6,20 @@ import restana from 'restana';
 import { z } from 'zod';
 import {
   createDb,
+  destroyDb,
   parseBody,
   requireServiceToken,
   readInternalUser,
+  assertPermission,
   getClientIp,
   reply,
   handleRouteError,
 } from '@centaur/shared';
 import * as mailer from './mailer';
 import * as notificationService from './notification.service';
+import * as businessNotifications from './business-notifications';
+import * as sse from './notification-sse';
+import { createNotificationScheduler } from './notification.scheduler';
 
 const service = restana();
 
@@ -98,6 +103,31 @@ const createNotificationSchema = z.object({
   scheduledAt: z.string().min(1),
 });
 
+const businessEventSchema = z.object({
+  kind: z.enum([
+    'PRESCRIPTION_CREATED',
+    'PRESCRIPTION_CANCELLED',
+    'PATIENT_CREATED',
+    'PATIENT_UPDATED',
+    'MEDICAL_HISTORY_RECORDED',
+  ]),
+  actorId: z.string().min(1),
+  patientId: z.string().min(1),
+  patientCode: z.string().min(1).optional(),
+  patientName: z.string().min(1).optional(),
+  service: z.enum(['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE']),
+});
+
+service.post('/internal/notifications/events', async (req, res) => {
+  try {
+    requireServiceToken(req.headers as Record<string, string | string[] | undefined>);
+    const body = businessEventSchema.parse(parseBody(req));
+    reply(res, 200, await businessNotifications.dispatchBusinessNotification(body));
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
 const listQuerySchema = z.object({
   read: z
     .enum(['true', 'false'])
@@ -119,6 +149,16 @@ service.get('/notifications', async (req, res) => {
       patientId: query.patientId,
     });
     reply(res, 200, await notificationService.listNotifications(user, filters));
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
+service.get('/notifications/stream', async (req, res) => {
+  try {
+    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    assertPermission(user, 'notifications:read');
+    sse.addSseConnection(user.id, res as unknown as sse.SseSink, req);
   } catch (err) {
     handleRouteError(res, err);
   }
@@ -165,7 +205,34 @@ service.patch('/notifications/:id/cancel', async (req, res) => {
 });
 
 const port = Number(process.env.NOTIFICATION_PORT || 3003);
+const scheduler = createNotificationScheduler();
+
 createDb();
-service.start(port).then(() => {
+service.start(port).then(async () => {
   console.log(`[notification-service] listening on ${port}`);
+  if (process.env.NODE_ENV !== 'test') {
+    await scheduler.start();
+    console.log(
+      `[notification-service] scheduler started intervalMs=${scheduler.intervalMs}`
+    );
+  }
+});
+
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[notification-service] ${signal} received, shutting down`);
+  await sse.closeAllSseConnections();
+  await scheduler.stop();
+  await service.close();
+  await destroyDb();
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+process.on('SIGINT', () => {
+  void shutdown('SIGINT');
 });

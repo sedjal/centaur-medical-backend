@@ -12,8 +12,9 @@ import {
   reply,
   createRateLimiter,
 } from '@centaur/shared';
-import { requireAuth } from './auth-guard';
+import { requireAuth, requireAuthSse } from './auth-guard';
 import { AUTH_URL, PATIENT_URL, NOTIFICATION_URL, hasPermission, proxy } from './proxy';
+import { proxySse } from './sse-proxy';
 
 const service = restana({
   errorHandler: (err, _req, res) => {
@@ -241,6 +242,17 @@ service.get('/api/auth/me', async (req, res) => {
 });
 
 // Users
+service.get('/api/users/directory', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'notifications:create');
+    const result = await proxy(AUTH_URL, 'GET', '/users/directory', { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
 service.get('/api/users', async (req, res) => {
   try {
     const user = requireAuth(req);
@@ -567,6 +579,22 @@ service.get('/api/notifications', async (req, res) => {
       },
     });
     reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/notifications/stream', async (req, res) => {
+  try {
+    const user = requireAuthSse(req);
+    requirePerm(user, 'notifications:read');
+    proxySse({
+      targetBase: NOTIFICATION_URL,
+      path: '/notifications/stream',
+      user,
+      incoming: req as unknown as import('http').IncomingMessage,
+      outgoing: res as unknown as import('http').ServerResponse,
+    });
   } catch (err) {
     handleError(res, err);
   }

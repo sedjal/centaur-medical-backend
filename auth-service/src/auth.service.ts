@@ -443,6 +443,16 @@ export async function listUsers() {
     .orderBy('u.created_at', 'desc');
 }
 
+/** Active staff for notification recipients — no admin flags, no passwords. */
+export async function listStaffDirectory() {
+  return getDb()
+    .table('users as u')
+    .join('roles as r', 'r.id', 'u.role_id')
+    .where({ is_active: true })
+    .select('u.id', 'u.email', 'u.first_name', 'u.last_name', 'r.name as role')
+    .orderBy('u.last_name', 'asc');
+}
+
 export async function createUser(input: {
   email: string;
   password: string;

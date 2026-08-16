@@ -533,3 +533,24 @@ test('RBAC flexible: MEDECIN_URGENCE et CARDIO_READER roles (permissions only)',
   teardown();
   t.end();
 });
+
+test('UPDATE patient: émet PATIENT_UPDATED après succès', async (t) => {
+  const events: unknown[] = [];
+  const { __setBusinessNotifyDispatcher, __resetBusinessNotifyDispatcher } = await import(
+    '../../src/business-notify'
+  );
+  __setBusinessNotifyDispatcher(async (e) => {
+    events.push(e);
+  });
+  setup();
+  try {
+    await updatePatient(urgWrite(), 'p-urg-1', input('URGENCE', { lastName: 'Modifié' }), '8.8.8.8');
+    t.equal(events.length, 1);
+    t.equal((events[0] as { kind: string }).kind, 'PATIENT_UPDATED');
+    t.equal((events[0] as { patientId: string }).patientId, 'p-urg-1');
+  } finally {
+    __resetBusinessNotifyDispatcher();
+    teardown();
+    t.end();
+  }
+});

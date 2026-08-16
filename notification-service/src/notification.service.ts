@@ -8,6 +8,7 @@ import {
   type Permission,
   type ServiceType,
 } from '@centaur/shared';
+import { emitNotificationCreated } from './notification-sse';
 
 export const NOTIFICATION_TYPES = [
   'GENERAL',
@@ -29,6 +30,12 @@ export interface NotificationCreateInput {
   title: string;
   message: string;
   scheduledAt: string;
+}
+
+export interface InternalNotificationCreateInput extends NotificationCreateInput {
+  createdBy: string;
+  source?: 'MANUAL' | 'BUSINESS_EVENT';
+  kind?: string;
 }
 
 export interface NotificationListFilters {
@@ -134,11 +141,127 @@ function resolveInitialStatus(scheduledAt: Date): {
   return { status: 'PENDING', sentAt: null };
 }
 
+export async function countUnreadForRecipient(userId: string): Promise<number> {
+  const rows = (await getDb()('notifications')
+    .where({ recipient_id: userId })
+    .whereIn('status', ['PENDING', 'SENT'])
+    .select('id')) as Array<{ id: unknown }>;
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
+async function emitSentSse(dto: NotificationDto): Promise<void> {
+  if (dto.status !== 'SENT') return;
+  try {
+    const unreadCount = await countUnreadForRecipient(dto.recipientId);
+    emitNotificationCreated({
+      recipientId: dto.recipientId,
+      notificationId: dto.id,
+      type: dto.type,
+      unreadCount,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[notification-sse] emit failed id=${dto.id} error=${msg}`);
+  }
+}
+
+export interface ProcessScheduledResult {
+  found: number;
+  processed: number;
+  failed: number;
+}
+
+export const DEFAULT_NOTIFICATION_WORKER_BATCH_SIZE = 100;
+
 /**
- * No cron/worker in this codebase.
- * PENDING rows with scheduled_at in the future stay PENDING until a future worker flips them,
- * or until cancel. Immediate delivery (scheduled_at <= now) is marked SENT at create time.
+ * Flip due PENDING notifications to SENT.
+ * Internal worker only — no RBAC user, no public HTTP route.
+ *
+ * Concurrency: each row is claimed with UPDATE ... WHERE id AND status = 'PENDING'.
+ * A second worker (or a second pass) sees 0 updated rows and does not re-send.
+ *
+ * Timezone: `scheduled_at` is timestamptz. Create stores `Date#toISOString()` (UTC).
+ * Frontend ISO with offset (e.g. 2026-08-15T22:00:00+01:00) is therefore compared
+ * in UTC against the Node clock, matching PostgreSQL timestamptz semantics.
+ *
+ * Immediate create (scheduledAt <= now) is already SENT in createNotification.
+ * This function only processes rows that stayed PENDING until due.
  */
+export async function processScheduledNotifications(options?: {
+  limit?: number;
+  now?: Date;
+}): Promise<ProcessScheduledResult> {
+  const now = options?.now ?? new Date();
+  const nowIso = now.toISOString();
+  const requested = options?.limit ?? DEFAULT_NOTIFICATION_WORKER_BATCH_SIZE;
+  const limit = Math.min(Math.max(Math.floor(requested), 1), 500);
+
+  const db = getDb();
+  const due = (await db('notifications')
+    .where({ status: 'PENDING' })
+    .whereNotNull('scheduled_at')
+    .where('scheduled_at', '<=', nowIso)
+    .orderBy('scheduled_at', 'asc')
+    .limit(limit)
+    .forUpdate()
+    .skipLocked()
+    .select('id', 'recipient_id', 'type')) as Array<{
+    id: unknown;
+    recipient_id?: unknown;
+    type?: unknown;
+  }>;
+
+  const result: ProcessScheduledResult = {
+    found: due.length,
+    processed: 0,
+    failed: 0,
+  };
+
+  for (const row of due) {
+    const id = String(row.id);
+    try {
+      const updated = await db('notifications')
+        .where({ id, status: 'PENDING' })
+        .update({
+          status: 'SENT',
+          sent_at: nowIso,
+          updated_at: nowIso,
+        });
+      if (Number(updated) > 0) {
+        result.processed += 1;
+        const type = String(row.type || 'GENERAL');
+        await emitSentSse({
+          id,
+          recipientId: String(row.recipient_id || ''),
+          patientId: null,
+          type: isType(type) ? type : 'GENERAL',
+          title: '',
+          message: '',
+          scheduledAt: nowIso,
+          sentAt: nowIso,
+          readAt: null,
+          status: 'SENT',
+          createdBy: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        });
+      }
+    } catch (err) {
+      result.failed += 1;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[notification-worker] failed id=${id} error=${msg}`);
+    }
+  }
+
+  if (result.found > 0 || result.failed > 0) {
+    console.log(
+      `[notification-worker] found=${result.found} processed=${result.processed} failed=${result.failed}`
+    );
+  }
+
+  return result;
+}
+
 export async function createNotification(
   user: InternalUser,
   input: NotificationCreateInput,
@@ -209,7 +332,97 @@ export async function createNotification(
     return row as DbRow;
   });
 
-  return toDto(created);
+  const dto = toDto(created);
+  await emitSentSse(dto);
+  return dto;
+}
+
+/** Service-to-service fan-out — no notifications:create, no public HTTP user. */
+export async function createInternalNotification(
+  input: InternalNotificationCreateInput,
+  ip?: string
+): Promise<NotificationDto> {
+  const recipientId = String(input.recipientId || '').trim();
+  if (!recipientId) throw new AppError('recipientId is required', 400);
+
+  const title = String(input.title || '').trim();
+  const message = String(input.message || '').trim();
+  if (!title) throw new AppError('title is required', 400);
+  if (!message) throw new AppError('message is required', 400);
+  if (!isType(input.type)) throw new AppError('Invalid notification type', 400);
+
+  const scheduled = new Date(input.scheduledAt);
+  if (Number.isNaN(scheduled.getTime())) {
+    throw new AppError('Invalid scheduledAt', 400);
+  }
+
+  const createdBy = String(input.createdBy || '').trim();
+  if (!createdBy) throw new AppError('createdBy is required', 400);
+
+  const recipient = await getDb()('users').where({ id: recipientId }).first();
+  if (!recipient) throw new AppError('Recipient not found', 404);
+  if (recipient.is_active === false) {
+    throw new AppError('Recipient is inactive', 404);
+  }
+
+  let patientId: string | null = null;
+  if (input.patientId) {
+    patientId = String(input.patientId).trim();
+    const patient = await getDb()('patients').where({ id: patientId }).first();
+    if (!patient) throw new AppError('Patient not found', 404);
+  }
+
+  const { status, sentAt } = resolveInitialStatus(scheduled);
+  const now = new Date().toISOString();
+  const actor: InternalUser = {
+    id: createdBy,
+    email: '',
+    role: 'SYSTEM',
+    permissions: [],
+    firstName: '',
+    lastName: '',
+  };
+
+  const created = await getDb().transaction(async (trx) => {
+    const [row] = await trx('notifications')
+      .insert({
+        recipient_id: recipientId,
+        patient_id: patientId,
+        type: input.type,
+        title,
+        message,
+        scheduled_at: scheduled.toISOString(),
+        sent_at: sentAt,
+        read_at: null,
+        status,
+        created_by: createdBy,
+        created_at: now,
+        updated_at: now,
+      })
+      .returning('*');
+
+    await writeAudit(
+      actor,
+      'NOTIFICATION_CREATED',
+      String(row.id),
+      ip,
+      {
+        type: input.type,
+        status,
+        recipientId,
+        patientId,
+        source: input.source || 'BUSINESS_EVENT',
+        kind: input.kind || null,
+      },
+      trx as unknown as ReturnType<typeof getDb>
+    );
+
+    return row as DbRow;
+  });
+
+  const dto = toDto(created);
+  await emitSentSse(dto);
+  return dto;
 }
 
 export async function listNotifications(

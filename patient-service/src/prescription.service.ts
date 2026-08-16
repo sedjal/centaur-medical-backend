@@ -7,6 +7,7 @@ import {
 } from '@centaur/shared';
 import { assertServiceAccess, allowedServices } from './patient.service';
 import { createMedicalHistoryEvent } from './medical-history.service';
+import { notifyBusinessEvent, patientStaffLabel } from './business-notify';
 
 export type PrescriptionStatus = 'ACTIVE' | 'CANCELLED';
 
@@ -261,6 +262,14 @@ export async function createPrescription(
     return rx as DbRow;
   });
 
+  notifyBusinessEvent({
+    kind: 'PRESCRIPTION_CREATED',
+    actorId: user.id,
+    patientId: String(input.patientId),
+    service: patient.service as ServiceType,
+    ...patientStaffLabel(patient),
+  });
+
   return toDto(created);
 }
 
@@ -377,6 +386,14 @@ export async function cancelPrescription(
       },
       trx as unknown as ReturnType<typeof getDb>
     );
+  });
+
+  notifyBusinessEvent({
+    kind: 'PRESCRIPTION_CANCELLED',
+    actorId: user.id,
+    patientId: String(row.patient_id),
+    service: patient.service as ServiceType,
+    ...patientStaffLabel(patient),
   });
 
   const updated = await getDb()('prescriptions').where({ id }).first();

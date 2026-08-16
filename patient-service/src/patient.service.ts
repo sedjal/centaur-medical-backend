@@ -8,6 +8,7 @@ import {
   type ServiceType,
 } from '@centaur/shared';
 import { createMedicalHistoryEvent } from './medical-history.service';
+import { notifyBusinessEvent, patientStaffLabel } from './business-notify';
 
 export interface SpecialtyData {
   notes?: string | null;
@@ -316,6 +317,14 @@ export async function createPatient(user: InternalUser, input: PatientInput, ip?
     return patient;
   });
 
+  notifyBusinessEvent({
+    kind: 'PATIENT_CREATED',
+    actorId: user.id,
+    patientId: String(result.id),
+    service: input.service,
+    ...patientStaffLabel(result),
+  });
+
   return assemblePatientDossier(String(result.id), result);
 }
 
@@ -385,6 +394,15 @@ export async function updatePatient(
       },
       trx as unknown as ReturnType<typeof getDb>
     );
+  });
+
+  notifyBusinessEvent({
+    kind: 'PATIENT_UPDATED',
+    actorId: user.id,
+    patientId: id,
+    service: input.service,
+    patientName: `${input.lastName.toUpperCase()} ${input.firstName}`.trim(),
+    patientCode: String(existing.patient_code || ''),
   });
 
   return assemblePatientDossier(id);

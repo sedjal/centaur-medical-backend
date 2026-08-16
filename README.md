@@ -198,10 +198,33 @@ Permissions :
 Les emails MFA / welcome / reset restent dans `email_notifications` (anciennement `notifications`).  
 La table `notifications` est l’inbox applicative (statuts `PENDING` \| `SENT` \| `READ` \| `CANCELLED`).
 
-Planification : si `scheduledAt <= now` → statut `SENT` immédiat. Sinon `PENDING`.  
-**Aucun worker/cron** n’existe encore : les `PENDING` futurs ne basculent pas automatiquement en `SENT`.
+Planification : si `scheduledAt <= now` à la création → statut `SENT` immédiat. Sinon `PENDING`.
 
-Pas de `PUT` sur le message après création. Audit : `NOTIFICATION_CREATED` / `READ` / `CANCELLED` (sans contenu médical).
+Un **worker interne** (`notification.scheduler.ts`) tourne dans notification-service :
+
+- au démarrage du service : un premier traitement, puis toutes les `NOTIFICATION_WORKER_INTERVAL_MS` (défaut **5000** ms, minimum effectif 1000)
+- sélection : `status = PENDING` ET `scheduled_at IS NOT NULL` ET `scheduled_at <= now`
+- transition atomique `PENDING → SENT` (`UPDATE … WHERE id AND status = 'PENDING'`) + remplissage de `sent_at`
+- `CANCELLED` / `READ` / `SENT` jamais retraités
+- pas d’endpoint public de traitement
+- SIGTERM / SIGINT : arrêt du timer, fin du tick en cours, fermeture HTTP + pool Knex
+
+Destinataire : un **compte personnel actif** (pas un patient). Qui peut envoyer : permission `notifications:create` (ADMIN, DIRECTION, MEDECIN, SECRÉTAIRE, MEDECIN_URGENCE). L’annuaire `GET /api/users/directory` est ouvert à cette permission — `users:read` (page Utilisateurs) reste réservé à ADMIN.
+
+Timezone : colonnes `timestamptz`. Le frontend peut envoyer `2026-08-15T22:00:00+01:00` ; à l’insert Node stocke l’équivalent UTC (`Date#toISOString()`). Le worker compare en UTC — indépendant du `TimeZone` de session PostgreSQL.
+
+```bash
+NOTIFICATION_WORKER_INTERVAL_MS=5000
+```
+
+Tests worker :
+
+```bash
+npm test -w notification-service
+npm run test:all -w notification-service
+```
+
+Pas de `PUT` sur le message après création. Audit HTTP : `NOTIFICATION_CREATED` / `READ` / `CANCELLED` (sans contenu médical). Le worker journalise `found` / `processed` / `failed` (pas de titre, message, JWT ni mot de passe).
 
 Users:
 

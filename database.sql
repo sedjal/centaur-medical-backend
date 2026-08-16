@@ -205,6 +205,7 @@ CREATE INDEX idx_notifications_recipient ON notifications(recipient_id);
 CREATE INDEX idx_notifications_status ON notifications(status);
 CREATE INDEX idx_notifications_scheduled ON notifications(scheduled_at);
 CREATE INDEX idx_notifications_patient ON notifications(patient_id);
+CREATE INDEX idx_notifications_status_scheduled ON notifications(status, scheduled_at);
 
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
