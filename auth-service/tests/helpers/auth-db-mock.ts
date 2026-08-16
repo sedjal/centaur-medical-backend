@@ -30,7 +30,11 @@ const DEFAULT_PERMISSIONS: Row[] = [
 
 function cloneSeed(seed: AuthDbSeed): Required<AuthDbSeed> {
   return {
-    users: JSON.parse(JSON.stringify(seed.users || [])),
+    users: JSON.parse(JSON.stringify(seed.users || [])).map((u: Row) => ({
+      session_version: 1,
+      is_active: true,
+      ...u,
+    })),
     roles: JSON.parse(JSON.stringify(seed.roles || DEFAULT_ROLES)),
     permissions: JSON.parse(JSON.stringify(seed.permissions || DEFAULT_PERMISSIONS)),
     role_permissions: JSON.parse(JSON.stringify(seed.role_permissions || [])),

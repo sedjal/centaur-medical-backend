@@ -7,11 +7,12 @@ import { z } from 'zod';
 import {
   createDb,
   parseBody,
-  readInternalUser,
+  readInternalUserWithSession,
   assertPermission,
   getClientIp,
   reply,
   handleRouteError,
+  getListenHost,
 } from '@centaur/shared';
 import * as patientService from './patient.service';
 import * as prescriptionService from './prescription.service';
@@ -55,7 +56,7 @@ const patientSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid hospitalization date'),
   service: z.enum(['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE']),
-  status: z.string().optional(),
+  status: z.enum(['STABLE', 'CRITICAL']).optional(),
   specialty: specialtySchema,
 });
 
@@ -65,7 +66,7 @@ service.get('/health', async (_req, res) => {
 
 service.get('/patients', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'patients:read');
     const query = (req as { query?: Record<string, string> }).query || {};
     const list = await patientService.listPatients(user, {
@@ -80,7 +81,7 @@ service.get('/patients', async (req, res) => {
 
 service.get('/patients/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'patients:read');
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await patientService.getPatient(id, user, getClientIp(req)));
@@ -91,7 +92,7 @@ service.get('/patients/:id', async (req, res) => {
 
 service.post('/patients', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const body = patientSchema.parse(parseBody(req));
     reply(res, 201, await patientService.createPatient(user, body, getClientIp(req)));
   } catch (err) {
@@ -101,7 +102,7 @@ service.post('/patients', async (req, res) => {
 
 service.put('/patients/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     const body = patientSchema.parse(parseBody(req));
     reply(res, 200, await patientService.updatePatient(user, id, body, getClientIp(req)));
@@ -112,7 +113,7 @@ service.put('/patients/:id', async (req, res) => {
 
 service.delete('/patients/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await patientService.deletePatient(user, id, getClientIp(req)));
   } catch (err) {
@@ -122,7 +123,7 @@ service.delete('/patients/:id', async (req, res) => {
 
 service.get('/dashboard/stats', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'patients:read');
     reply(res, 200, await patientService.getDashboardStats(user));
   } catch (err) {
@@ -132,7 +133,7 @@ service.get('/dashboard/stats', async (req, res) => {
 
 service.get('/audit-logs', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'audit:read');
     reply(res, 200, await patientService.listAuditLogs());
   } catch (err) {
@@ -157,7 +158,7 @@ const createPrescriptionSchema = z.object({
 
 service.get('/prescriptions', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const query = (req as { query?: Record<string, string> }).query || {};
     reply(
       res,
@@ -177,7 +178,7 @@ service.get('/prescriptions', async (req, res) => {
 
 service.get('/prescriptions/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await prescriptionService.getPrescription(user, id));
   } catch (err) {
@@ -187,7 +188,7 @@ service.get('/prescriptions/:id', async (req, res) => {
 
 service.get('/patients/:id/prescriptions', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await prescriptionService.listPatientPrescriptions(user, id));
   } catch (err) {
@@ -197,7 +198,7 @@ service.get('/patients/:id/prescriptions', async (req, res) => {
 
 service.post('/prescriptions', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const body = createPrescriptionSchema.parse(parseBody(req));
     reply(res, 201, await prescriptionService.createPrescription(user, body, getClientIp(req)));
   } catch (err) {
@@ -207,7 +208,7 @@ service.post('/prescriptions', async (req, res) => {
 
 service.patch('/prescriptions/:id/cancel', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await prescriptionService.cancelPrescription(user, id, getClientIp(req)));
   } catch (err) {
@@ -227,7 +228,7 @@ const historyQuerySchema = z.object({
 
 service.get('/medical-history', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const query = (req as { query?: Record<string, string> }).query || {};
     const filters = historyQuerySchema.parse({
       patientId: query.patientId,
@@ -244,7 +245,7 @@ service.get('/medical-history', async (req, res) => {
 
 service.get('/patients/:id/medical-history', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await medicalHistoryService.getPatientMedicalHistory(user, id));
   } catch (err) {
@@ -253,7 +254,8 @@ service.get('/patients/:id/medical-history', async (req, res) => {
 });
 
 const port = Number(process.env.PATIENT_PORT || 3002);
+const host = getListenHost('internal');
 createDb();
-service.start(port).then(() => {
-  console.log(`[patient-service] listening on ${port}`);
+service.start(port, host).then(() => {
+  console.log(`[patient-service] listening on ${host}:${port}`);
 });

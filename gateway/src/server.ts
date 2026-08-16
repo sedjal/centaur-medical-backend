@@ -11,6 +11,7 @@ import {
   getClientIp,
   reply,
   createRateLimiter,
+  getListenHost,
 } from '@centaur/shared';
 import { requireAuth, requireAuthSse } from './auth-guard';
 import { AUTH_URL, PATIENT_URL, NOTIFICATION_URL, hasPermission, proxy } from './proxy';
@@ -18,7 +19,7 @@ import { proxySse } from './sse-proxy';
 
 const service = restana({
   errorHandler: (err, _req, res) => {
-    console.error(err);
+    console.error('[gateway]', err instanceof Error ? err.message : 'error');
     reply(res, 500, { error: 'Gateway error' });
   },
 });
@@ -32,7 +33,10 @@ const AUTH_SENSITIVE = new Set([
   '/api/auth/password/forgot',
   '/api/auth/password/verify-reset-code',
   '/api/auth/password/reset',
+  '/api/auth/password/change',
+  '/api/auth/password/change-required',
   '/api/auth/mfa/verify',
+  '/api/auth/refresh',
 ]);
 
 function applySecurityHeaders(res: {
@@ -44,6 +48,15 @@ function applySecurityHeaders(res: {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-DNS-Prefetch-Control', 'off');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+}
+
+function rateLimitIp(req: {
+  headers?: Record<string, string | string[] | undefined>;
+  connection?: { remoteAddress?: string };
+  ip?: string;
+}): string {
+  if (process.env.TRUST_PROXY === '1') return getClientIp(req);
+  return req.ip || req.connection?.remoteAddress || 'unknown';
 }
 
 function getCorsOrigin(): string {
@@ -77,7 +90,7 @@ service.use(async (req, res, next) => {
 
   applySecurityHeaders(res);
 
-  const ip = getClientIp(req);
+  const ip = rateLimitIp(req);
   const pathName = (req as { url?: string }).url?.split('?')[0] || '';
 
   if (!globalLimiter.allow(ip)) {
@@ -91,14 +104,22 @@ service.use(async (req, res, next) => {
 
   if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
     const chunks: Buffer[] = [];
+    let size = 0;
+    const MAX_JSON_BYTES = 1_048_576;
     for await (const chunk of req as unknown as AsyncIterable<Buffer>) {
+      size += Buffer.byteLength(chunk);
+      if (size > MAX_JSON_BYTES) {
+        reply(res, 413, { error: 'Payload too large' });
+        return;
+      }
       chunks.push(Buffer.from(chunk));
     }
     const raw = Buffer.concat(chunks).toString('utf8');
     try {
       (req as { body?: unknown }).body = raw ? JSON.parse(raw) : {};
     } catch {
-      (req as { body?: unknown }).body = {};
+      reply(res, 400, { error: 'Invalid JSON' });
+      return;
     }
   }
   next();
@@ -120,7 +141,7 @@ function handleError(
     reply(res, 400, { error: 'Validation failed', details: err.flatten() });
     return;
   }
-  console.error(err);
+  console.error('[gateway]', err instanceof Error ? err.message : 'error');
   reply(res, 500, { error: 'Internal gateway error' });
 }
 
@@ -154,6 +175,26 @@ service.post('/api/auth/mfa/verify', async (req, res) => {
       .object({ mfaToken: z.string(), code: z.string().length(6) })
       .parse((req as { body?: unknown }).body || {});
     const result = await proxy(AUTH_URL, 'POST', '/auth/mfa/verify', { body });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    const result = await proxy(AUTH_URL, 'POST', '/auth/refresh', { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/auth/logout', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    const result = await proxy(AUTH_URL, 'POST', '/auth/logout', { user });
     reply(res, result.status, result.data);
   } catch (err) {
     handleError(res, err);
@@ -669,7 +710,8 @@ service.get('/api/audit-logs', async (req, res) => {
 });
 
 const port = Number(process.env.GATEWAY_PORT || 3000);
+const host = getListenHost('public');
 
-service.start(port).then(() => {
-  console.log(`[gateway] listening on ${port}`);
+service.start(port, host).then(() => {
+  console.log(`[gateway] listening on ${host}:${port}`);
 });

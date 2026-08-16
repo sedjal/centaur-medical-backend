@@ -1,24 +1,9 @@
 /**
  * Real HTTP proxy from gateway tests → patient test app.
  */
-import { getServiceToken, INTERNAL_HEADERS, type JwtPayload } from '@centaur/shared';
+import { type JwtPayload } from '@centaur/shared';
+import { buildIdentityHeaders } from '../../src/proxy';
 import type { ProxyFn } from './test-app';
-
-function buildIdentityHeaders(user?: JwtPayload): Record<string, string> {
-  const headers: Record<string, string> = {
-    [INTERNAL_HEADERS.SERVICE_TOKEN]: getServiceToken(),
-    'content-type': 'application/json',
-  };
-  if (user) {
-    headers[INTERNAL_HEADERS.USER_ID] = user.sub;
-    headers[INTERNAL_HEADERS.USER_EMAIL] = user.email;
-    headers[INTERNAL_HEADERS.USER_ROLE] = user.role;
-    headers[INTERNAL_HEADERS.USER_PERMISSIONS] = JSON.stringify(user.permissions || []);
-    headers[INTERNAL_HEADERS.USER_FIRST_NAME] = user.firstName || '';
-    headers[INTERNAL_HEADERS.USER_LAST_NAME] = user.lastName || '';
-  }
-  return headers;
-}
 
 export function createPatientServiceProxy(patientPort: number): ProxyFn {
   return async (_base, method, path, options = {}) => {

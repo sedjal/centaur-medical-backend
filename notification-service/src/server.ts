@@ -9,11 +9,12 @@ import {
   destroyDb,
   parseBody,
   requireServiceToken,
-  readInternalUser,
+  readInternalUserWithSession,
   assertPermission,
   getClientIp,
   reply,
   handleRouteError,
+  getListenHost,
 } from '@centaur/shared';
 import * as mailer from './mailer';
 import * as notificationService from './notification.service';
@@ -99,7 +100,7 @@ const createNotificationSchema = z.object({
   patientId: z.string().min(1).optional().nullable(),
   type: z.enum(['GENERAL', 'PATIENT', 'PRESCRIPTION', 'MEDICAL_HISTORY', 'REMINDER']),
   title: z.string().min(1).max(255),
-  message: z.string().min(1),
+  message: z.string().min(1).max(4000),
   scheduledAt: z.string().min(1),
 });
 
@@ -140,7 +141,7 @@ const listQuerySchema = z.object({
 
 service.get('/notifications', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const query = (req as { query?: Record<string, string> }).query || {};
     const filters = listQuerySchema.parse({
       read: query.read,
@@ -156,7 +157,7 @@ service.get('/notifications', async (req, res) => {
 
 service.get('/notifications/stream', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'notifications:read');
     sse.addSseConnection(user.id, res as unknown as sse.SseSink, req);
   } catch (err) {
@@ -166,7 +167,7 @@ service.get('/notifications/stream', async (req, res) => {
 
 service.get('/notifications/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await notificationService.getNotification(user, id));
   } catch (err) {
@@ -176,7 +177,7 @@ service.get('/notifications/:id', async (req, res) => {
 
 service.post('/notifications', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const body = createNotificationSchema.parse(parseBody(req));
     reply(res, 201, await notificationService.createNotification(user, body, getClientIp(req)));
   } catch (err) {
@@ -186,7 +187,7 @@ service.post('/notifications', async (req, res) => {
 
 service.patch('/notifications/:id/read', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await notificationService.markNotificationRead(user, id, getClientIp(req)));
   } catch (err) {
@@ -196,7 +197,7 @@ service.patch('/notifications/:id/read', async (req, res) => {
 
 service.patch('/notifications/:id/cancel', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const id = (req as unknown as { params: { id: string } }).params.id;
     reply(res, 200, await notificationService.cancelNotification(user, id, getClientIp(req)));
   } catch (err) {
@@ -205,11 +206,12 @@ service.patch('/notifications/:id/cancel', async (req, res) => {
 });
 
 const port = Number(process.env.NOTIFICATION_PORT || 3003);
+const host = getListenHost('internal');
 const scheduler = createNotificationScheduler();
 
 createDb();
-service.start(port).then(async () => {
-  console.log(`[notification-service] listening on ${port}`);
+service.start(port, host).then(async () => {
+  console.log(`[notification-service] listening on ${host}:${port}`);
   if (process.env.NODE_ENV !== 'test') {
     await scheduler.start();
     console.log(

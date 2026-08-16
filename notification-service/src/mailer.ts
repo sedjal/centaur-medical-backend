@@ -29,14 +29,23 @@ function brandLogoSvg(size = 40): string {
   </table>`;
 }
 
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function wrapEmailHtml(params: { title: string; preheader?: string; bodyHtml: string }): string {
-  const preheader = params.preheader || '';
+  const preheader = escapeHtml(params.preheader || '');
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${params.title}</title>
+  <title>${escapeHtml(params.title)}</title>
 </head>
 <body style="margin:0;padding:0;background:${BRAND.bg};font-family:Segoe UI,Arial,sans-serif;color:${BRAND.text}">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0">${preheader}</div>
@@ -108,10 +117,7 @@ export async function sendEmail(params: {
     params.html ||
     wrapEmailHtml({
       title: params.subject,
-      bodyHtml: `<p style="margin:0;font-size:15px;line-height:1.6;white-space:pre-wrap">${params.body
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')}</p>`,
+      bodyHtml: `<p style="margin:0;font-size:15px;line-height:1.6;white-space:pre-wrap">${escapeHtml(params.body)}</p>`,
     });
 
   if (transporter) {
@@ -125,10 +131,7 @@ export async function sendEmail(params: {
     sent = true;
     preview = nodemailer.getTestMessageUrl(info) || undefined;
   } else {
-    console.log('[notification] SMTP not configured — email logged:');
-    console.log(`  To: ${params.to}`);
-    console.log(`  Subject: ${params.subject}`);
-    console.log(`  Body:\n${params.body}`);
+    console.log(`[notification] SMTP not configured — suppressed ${params.type} email`);
   }
 
   await getDb()('email_notifications').insert({
@@ -152,16 +155,16 @@ export async function sendMfaCode(input: {
   const text = `Bonjour ${input.firstName},\n\nVotre code MFA est : ${input.code}\nIl expire dans 10 minutes.\n\n— Centaur Medical`;
   const html = wrapEmailHtml({
     title: 'Code MFA',
-    preheader: `Votre code Centaur Medical : ${input.code}`,
+    preheader: `Votre code Centaur Medical : ${escapeHtml(input.code)}`,
     bodyHtml: `
       <h1 style="margin:0 0 12px;font-size:22px;color:${BRAND.text}">Vérification MFA</h1>
       <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:${BRAND.muted}">
-        Bonjour <strong style="color:${BRAND.text}">${input.firstName}</strong>,<br/>
+        Bonjour <strong style="color:${BRAND.text}">${escapeHtml(input.firstName)}</strong>,<br/>
         utilisez le code ci-dessous pour finaliser votre connexion à Centaur Medical.
       </p>
       <div style="text-align:center;margin:24px 0">
         <div style="display:inline-block;padding:16px 28px;border-radius:12px;background:#eef4ff;border:1px solid #dbeafe;font-size:32px;font-weight:700;letter-spacing:8px;color:${BRAND.primary};font-family:Consolas,Monaco,monospace">
-          ${input.code}
+          ${escapeHtml(input.code)}
         </div>
       </div>
       <p style="margin:0;font-size:13px;color:${BRAND.muted};line-height:1.5">
@@ -193,17 +196,17 @@ export async function sendWelcomeEmail(input: {
     bodyHtml: `
       <h1 style="margin:0 0 12px;font-size:22px;color:${BRAND.text}">Bienvenue sur Centaur Medical</h1>
       <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:${BRAND.muted}">
-        Bonjour <strong style="color:${BRAND.text}">${input.firstName}</strong>,<br/>
+        Bonjour <strong style="color:${BRAND.text}">${escapeHtml(input.firstName)}</strong>,<br/>
         un administrateur a créé votre compte sur la plateforme hospitalière.
       </p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BRAND.border};border-radius:12px;overflow:hidden;margin-bottom:20px">
         <tr>
           <td style="padding:12px 16px;background:${BRAND.bg};font-size:12px;font-weight:600;color:${BRAND.muted};width:40%">Email</td>
-          <td style="padding:12px 16px;font-size:14px;color:${BRAND.text}">${input.email}</td>
+          <td style="padding:12px 16px;font-size:14px;color:${BRAND.text}">${escapeHtml(input.email)}</td>
         </tr>
         <tr>
           <td style="padding:12px 16px;background:${BRAND.bg};font-size:12px;font-weight:600;color:${BRAND.muted};border-top:1px solid ${BRAND.border}">Mot de passe temporaire</td>
-          <td style="padding:12px 16px;font-size:14px;font-family:Consolas,Monaco,monospace;color:${BRAND.primary};border-top:1px solid ${BRAND.border}">${input.tempPassword}</td>
+          <td style="padding:12px 16px;font-size:14px;font-family:Consolas,Monaco,monospace;color:${BRAND.primary};border-top:1px solid ${BRAND.border}">${escapeHtml(input.tempPassword)}</td>
         </tr>
       </table>
       <p style="margin:0;font-size:13px;color:${BRAND.muted};line-height:1.5">
@@ -231,16 +234,16 @@ export async function sendPasswordResetEmail(input: {
   const text = `Bonjour ${input.firstName},\n\nVotre code de réinitialisation Centaur Medical est : ${input.code}\nIl expire dans 15 minutes.\n\nSi vous n’avez pas demandé cette réinitialisation, ignorez cet email.\n\n— Centaur Medical`;
   const html = wrapEmailHtml({
     title: 'Réinitialisation',
-    preheader: `Votre code Centaur Medical : ${input.code}`,
+    preheader: `Votre code Centaur Medical : ${escapeHtml(input.code)}`,
     bodyHtml: `
       <h1 style="margin:0 0 12px;font-size:22px;color:${BRAND.text}">Mot de passe oublié</h1>
       <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:${BRAND.muted}">
-        Bonjour <strong style="color:${BRAND.text}">${input.firstName}</strong>,<br/>
+        Bonjour <strong style="color:${BRAND.text}">${escapeHtml(input.firstName)}</strong>,<br/>
         saisissez le code ci-dessous sur la plateforme pour choisir un nouveau mot de passe.
       </p>
       <div style="text-align:center;margin:24px 0">
         <div style="display:inline-block;padding:16px 28px;border-radius:12px;background:#eef4ff;border:1px solid #dbeafe;font-size:32px;font-weight:700;letter-spacing:8px;color:${BRAND.primary};font-family:Consolas,Monaco,monospace">
-          ${input.code}
+          ${escapeHtml(input.code)}
         </div>
       </div>
       <p style="margin:0;font-size:13px;color:${BRAND.muted};line-height:1.5">

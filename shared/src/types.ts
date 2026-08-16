@@ -71,6 +71,11 @@ export interface JwtPayload {
   lastName: string;
   /** Restricts short-lived tokens to a single flow. */
   purpose?: 'ACCESS' | 'MFA' | 'CHANGE_PASSWORD' | 'PASSWORD_RESET';
+  /**
+   * Server session version (`users.session_version`).
+   * Missing claim is treated as 0 and will not match a live row (default 1).
+   */
+  sv?: number;
 }
 
 export interface InternalUser {

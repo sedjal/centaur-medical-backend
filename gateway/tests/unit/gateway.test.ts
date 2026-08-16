@@ -29,6 +29,9 @@ test('gateway: injecte l’identité JWT', (t) => {
   t.equal(headers['x-user-id'], 'uid-1');
   t.equal(headers['x-user-role'], 'ADMIN');
   t.ok(JSON.parse(headers['x-user-permissions']).includes('patients:delete'));
+  t.equal(headers['x-session-ver'], '0');
+  const withSv = buildIdentityHeaders({ ...user, sv: 3 });
+  t.equal(withSv['x-session-ver'], '3');
   t.end();
 });
 

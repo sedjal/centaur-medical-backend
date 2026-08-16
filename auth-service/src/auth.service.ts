@@ -7,9 +7,11 @@ import {
   createDb,
   generateOtpCode,
   getDb,
+  getServiceToken,
   hashOtp,
   logDevSecret,
   signToken,
+  timingSafeEqualStr,
   type JwtPayload,
   type Permission,
   type RoleName,
@@ -27,6 +29,7 @@ export interface UserRow {
   mfa_enabled: boolean;
   mfa_required: boolean;
   role_name: RoleName;
+  session_version?: number;
 }
 
 export const RESET_MAX_ATTEMPTS = 5;
@@ -56,9 +59,8 @@ export function nextResetAttempts(attempts: number): { next: number; locked: boo
 
 async function notify(path: string, body: Record<string, unknown>): Promise<void> {
   const notifUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://127.0.0.1:3003';
-  const serviceToken = process.env.SERVICE_TOKEN || 'centaur-internal-service-token-dev';
   await axios.post(`${notifUrl}${path}`, body, {
-    headers: { 'x-service-token': serviceToken },
+    headers: { 'x-service-token': getServiceToken() },
     timeout: 5000,
   });
 }
@@ -138,6 +140,7 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
       'u.must_change_password',
       'u.mfa_enabled',
       'u.mfa_required',
+      'u.session_version',
       'r.name as role_name'
     )
     .first();
@@ -165,7 +168,62 @@ function buildJwtPayload(user: UserRow, permissions: Permission[]): JwtPayload {
     permissions,
     firstName: user.first_name,
     lastName: user.last_name,
+    sv: Number(user.session_version ?? 1),
   };
+}
+
+export async function bumpSessionVersion(userId: string): Promise<void> {
+  const row = await getDb()('users').where({ id: userId }).first();
+  if (!row) return;
+  const next = Number(row.session_version ?? 1) + 1;
+  await getDb()('users').where({ id: userId }).update({ session_version: next });
+}
+
+export async function bumpSessionVersionForRole(roleId: string): Promise<void> {
+  const rows = (await getDb()('users').where({ role_id: roleId })) as Array<{
+    id: string;
+    session_version?: number;
+  }>;
+  for (const row of rows) {
+    await getDb()('users')
+      .where({ id: row.id })
+      .update({ session_version: Number(row.session_version ?? 1) + 1 });
+  }
+}
+
+async function loadUserRow(userId: string): Promise<UserRow | null> {
+  const row = await getDb()
+    .table('users as u')
+    .join('roles as r', 'r.id', 'u.role_id')
+    .where('u.id', userId)
+    .select(
+      'u.id',
+      'u.email',
+      'u.password_hash',
+      'u.first_name',
+      'u.last_name',
+      'u.role_id',
+      'u.is_active',
+      'u.must_change_password',
+      'u.mfa_enabled',
+      'u.mfa_required',
+      'u.session_version',
+      'r.name as role_name'
+    )
+    .first();
+  return (row as UserRow) || null;
+}
+
+export async function refreshAccessSession(
+  userId: string
+): Promise<{ status: 'OK'; token: string; user: JwtPayload }> {
+  const user = await loadUserRow(userId);
+  if (!user || user.is_active === false) throw new AppError('Unauthorized', 401);
+  return issueAccessSession(user);
+}
+
+export async function logoutSession(userId: string): Promise<void> {
+  await bumpSessionVersion(userId);
 }
 
 export async function login(
@@ -177,8 +235,7 @@ export async function login(
   | { status: 'CHANGE_PASSWORD'; tempToken: string }
 > {
   const user = await findUserByEmail(email);
-  if (!user) throw new AppError('Invalid credentials', 401);
-  if (!user.is_active) throw new AppError('Account is inactive', 403);
+  if (!user || !user.is_active) throw new AppError('Invalid credentials', 401);
 
   const valid = await argon2.verify(user.password_hash, password);
   if (!valid) throw new AppError('Invalid credentials', 401);
@@ -231,6 +288,7 @@ export async function verifyMfa(
 
   if (!userRow) throw new AppError('Invalid MFA session', 401);
   const user = userRow as UserRow;
+  if (!user.is_active) throw new AppError('Invalid MFA session', 401);
 
   const mfa = await getDb()('mfa_codes')
     .where({ user_id: user.id })
@@ -245,7 +303,7 @@ export async function verifyMfa(
   if (mfa.attempts >= 5) throw new AppError('Too many MFA attempts', 429);
 
   const expected = hashOtp(code);
-  if (expected !== mfa.code_hash) {
+  if (!timingSafeEqualStr(expected, String(mfa.code_hash))) {
     await getDb()('mfa_codes').where({ id: mfa.id }).update({ attempts: mfa.attempts + 1 });
     throw new AppError('Invalid MFA code', 401);
   }
@@ -262,7 +320,7 @@ export async function changePassword(
   newPassword: string
 ): Promise<void> {
   const user = await getDb()('users').where({ id: userId }).first();
-  if (!user) throw new AppError('User not found', 404);
+  if (!user || user.is_active === false) throw new AppError('Unauthorized', 401);
   const ok = await argon2.verify(user.password_hash, currentPassword);
   if (!ok) throw new AppError('Current password is incorrect', 401);
   assertPasswordPolicy(newPassword);
@@ -275,6 +333,7 @@ export async function changePassword(
     must_change_password: false,
     updated_at: getDb().fn.now(),
   });
+  await bumpSessionVersion(userId);
 }
 
 /** First-login / forced change using a short-lived CHANGE_PASSWORD token. */
@@ -287,26 +346,8 @@ export async function completeForcedPasswordChange(
   | { status: 'REQUIRES_MFA'; mfaToken: string; email: string }
 > {
   await changePassword(userId, currentPassword, newPassword);
-  const row = await getDb()
-    .table('users as u')
-    .join('roles as r', 'r.id', 'u.role_id')
-    .where('u.id', userId)
-    .select(
-      'u.id',
-      'u.email',
-      'u.password_hash',
-      'u.first_name',
-      'u.last_name',
-      'u.role_id',
-      'u.is_active',
-      'u.must_change_password',
-      'u.mfa_enabled',
-      'u.mfa_required',
-      'r.name as role_name'
-    )
-    .first();
-  if (!row || !(row as UserRow).is_active) throw new AppError('User not found', 404);
-  const user = row as UserRow;
+  const user = await loadUserRow(userId);
+  if (!user || user.is_active === false) throw new AppError('User not found', 404);
   if (needsMfa(user)) return issueMfaChallenge(user);
   return issueAccessSession(user);
 }
@@ -375,7 +416,7 @@ export async function verifyPasswordResetCode(
   }
 
   const expected = hashOtp(code);
-  if (expected !== row.token_hash) {
+  if (!timingSafeEqualStr(expected, String(row.token_hash))) {
     const { next, locked } = nextResetAttempts(attempts);
     const patch: Record<string, unknown> = { attempts: next };
     if (locked) patch.used_at = getDb().fn.now();
@@ -422,6 +463,7 @@ export async function resetPasswordWithSession(
       .update({ used_at: trx.fn.now() });
   });
 
+  await bumpSessionVersion(userId);
   return { ok: true };
 }
 
@@ -483,7 +525,6 @@ export async function createUser(input: {
     .returning(['id']);
 
   const notifUrl = process.env.NOTIFICATION_SERVICE_URL || 'http://127.0.0.1:3003';
-  const serviceToken = process.env.SERVICE_TOKEN || 'centaur-internal-service-token-dev';
   try {
     await axios.post(
       `${notifUrl}/internal/emails/welcome`,
@@ -493,13 +534,34 @@ export async function createUser(input: {
         firstName: input.firstName,
         tempPassword: input.password,
       },
-      { headers: { 'x-service-token': serviceToken }, timeout: 5000 }
+      { headers: { 'x-service-token': getServiceToken() }, timeout: 5000 }
     );
   } catch {
     console.warn('[auth] Welcome email failed');
   }
 
   return { id: row.id };
+}
+
+async function assertCanAlterAdmin(id: string, opts: { deactivate?: boolean; leaveAdmin?: boolean }): Promise<void> {
+  if (!opts.deactivate && !opts.leaveAdmin) return;
+  const target = await getDb()
+    .table('users as u')
+    .join('roles as r', 'r.id', 'u.role_id')
+    .where('u.id', id)
+    .select('u.id', 'u.is_active', 'r.name as role_name')
+    .first();
+  if (!target) throw new AppError('User not found', 404);
+  if (target.role_name !== 'ADMIN' || !target.is_active) return;
+  const row = await getDb()
+    .table('users as u')
+    .join('roles as r', 'r.id', 'u.role_id')
+    .where('r.name', 'ADMIN')
+    .where('u.is_active', true)
+    .whereNot('u.id', id)
+    .count<{ count: string }>('* as count')
+    .first();
+  assertNotLastActiveAdmin(Number(row?.count || 0));
 }
 
 export async function updateUser(
@@ -511,6 +573,10 @@ export async function updateUser(
     role: string;
   }>
 ): Promise<void> {
+  await assertCanAlterAdmin(id, {
+    deactivate: input.isActive === false,
+    leaveAdmin: input.role !== undefined && input.role.toUpperCase() !== 'ADMIN',
+  });
   const updates: Record<string, unknown> = { updated_at: getDb().fn.now() };
   if (input.firstName !== undefined) updates.first_name = input.firstName;
   if (input.lastName !== undefined) updates.last_name = input.lastName;
@@ -525,6 +591,9 @@ export async function updateUser(
   }
   const n = await getDb()('users').where({ id }).update(updates);
   if (!n) throw new AppError('User not found', 404);
+  if (input.isActive !== undefined || input.role !== undefined) {
+    await bumpSessionVersion(id);
+  }
 }
 
 export async function deleteUser(id: string, callerId: string): Promise<void> {
@@ -570,6 +639,7 @@ export async function me(userId: string) {
     )
     .first();
   if (!user) throw new AppError('User not found', 404);
+  if (user.is_active === false) throw new AppError('Unauthorized', 401);
   const permissions = await getUserPermissions(user.role as RoleName);
   return { ...user, permissions };
 }
@@ -632,6 +702,7 @@ export async function updateRolePermissions(roleId: string, permissionCodes: str
   const role = await getDb()('roles').where({ id: roleId }).first();
   if (!role) throw new AppError('Role not found', 404);
   await setRolePermissions(roleId, permissionCodes);
+  await bumpSessionVersionForRole(roleId);
 }
 
 async function setRolePermissions(roleId: string, permissionCodes: string[]): Promise<void> {

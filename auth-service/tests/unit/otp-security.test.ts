@@ -18,6 +18,17 @@ test('hashOtp: déterministe et non clair', (t) => {
   t.end();
 });
 
+test('hashOtp: JWT_SECRET obligatoire', (t) => {
+  const prev = process.env.JWT_SECRET;
+  delete process.env.JWT_SECRET;
+  try {
+    t.throws(() => hashOtp('123456'), /JWT_SECRET/);
+  } finally {
+    process.env.JWT_SECRET = prev;
+  }
+  t.end();
+});
+
 test('isSmtpConfigured / logDevSecret', (t) => {
   delete process.env.SMTP_USER;
   delete process.env.SMTP_PASS;

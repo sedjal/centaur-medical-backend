@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import type { JwtPayload } from './types';
+import { timingSafeEqualStr } from './security';
 
 const DEV_JWT_FALLBACK = 'centaur-medical-jwt-dev-secret-key-32chars';
 const DEV_SERVICE_FALLBACK = 'centaur-internal-service-token-dev';
@@ -28,18 +29,18 @@ export function getServiceToken(): string {
 export function signToken(payload: JwtPayload, expiresIn?: string): string {
   const secret = getJwtSecret();
   return jwt.sign(payload, secret, {
-    expiresIn: expiresIn || process.env.JWT_EXPIRES_IN || '8h',
+    expiresIn: expiresIn || process.env.JWT_EXPIRES_IN || '15m',
   } as jwt.SignOptions);
 }
 
 export function verifyToken(token: string): JwtPayload {
-  const decoded = jwt.verify(token, getJwtSecret());
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
   return decoded as JwtPayload;
 }
 
 export function isValidServiceToken(headerValue: string | undefined | null): boolean {
   if (!headerValue) return false;
-  return headerValue === getServiceToken();
+  return timingSafeEqualStr(headerValue, getServiceToken());
 }
 
 export const INTERNAL_HEADERS = {
@@ -50,4 +51,5 @@ export const INTERNAL_HEADERS = {
   USER_PERMISSIONS: 'x-user-permissions',
   USER_FIRST_NAME: 'x-user-first-name',
   USER_LAST_NAME: 'x-user-last-name',
+  SESSION_VER: 'x-session-ver',
 } as const;

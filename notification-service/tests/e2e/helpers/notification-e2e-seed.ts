@@ -110,6 +110,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: USERS.a.lastName,
         is_active: true,
         role_id: 'r-urg',
+        session_version: 1,
       },
       {
         id: USERS.b.id,
@@ -118,6 +119,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: USERS.b.lastName,
         is_active: true,
         role_id: 'r-urg',
+        session_version: 1,
       },
       {
         id: USERS.c.id,
@@ -126,6 +128,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: USERS.c.lastName,
         is_active: true,
         role_id: 'r-card',
+        session_version: 1,
       },
       {
         id: USERS.dir.id,
@@ -134,6 +137,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: USERS.dir.lastName,
         is_active: true,
         role_id: 'r-dir',
+        session_version: 1,
       },
       {
         id: USERS.noPerm.id,
@@ -142,6 +146,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: USERS.noPerm.lastName,
         is_active: true,
         role_id: 'r-urg',
+        session_version: 1,
       },
       {
         id: 'u-inactive',
@@ -150,6 +155,7 @@ export function notificationE2eSeed(): Partial<NotifDbState> {
         last_name: 'Ctif',
         is_active: false,
         role_id: 'r-urg',
+        session_version: 1,
       },
     ],
     roles,

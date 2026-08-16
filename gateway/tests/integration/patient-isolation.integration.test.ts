@@ -26,6 +26,7 @@ function tokenFor(permissions: Permission[], purpose: JwtPayload['purpose'] = 'A
       firstName: 'Gw',
       lastName: 'Test',
       purpose,
+      sv: 1,
     },
     '5m'
   );

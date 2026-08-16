@@ -29,6 +29,7 @@ export function accessToken(user: {
       firstName: user.firstName,
       lastName: user.lastName,
       purpose: user.purpose || 'ACCESS',
+      sv: 1,
     },
     '15m'
   );
@@ -58,6 +59,7 @@ export interface NotificationE2eHarness {
     noPerm: string;
     mfa: string;
     reset: string;
+    change: string;
   };
   close: () => Promise<void>;
 }
@@ -89,6 +91,7 @@ export async function startNotificationE2e(): Promise<NotificationE2eHarness> {
       noPerm: accessToken(USERS.noPerm),
       mfa: accessToken({ ...USERS.a, purpose: 'MFA' }),
       reset: accessToken({ ...USERS.a, purpose: 'PASSWORD_RESET' }),
+      change: accessToken({ ...USERS.a, purpose: 'CHANGE_PASSWORD' }),
     },
     close: async () => {
       await closeAllSseConnections();
@@ -101,6 +104,10 @@ export async function startNotificationE2e(): Promise<NotificationE2eHarness> {
       delete process.env.NOTIFICATION_SERVICE_URL;
     },
   };
+}
+
+export function bearer(token: string) {
+  return { Authorization: `Bearer ${token}` };
 }
 
 export function notificationsFor(state: NotifDbState, recipientId: string) {

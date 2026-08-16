@@ -7,13 +7,14 @@ import { z } from 'zod';
 import {
   createDb,
   parseBody,
-  readInternalUser,
+  readInternalUserWithSession,
   assertPermission,
   assertAnyPermission,
   verifyToken,
   requireServiceToken,
   reply,
   handleRouteError,
+  getListenHost,
 } from '@centaur/shared';
 import * as authService from './auth.service';
 
@@ -72,12 +73,13 @@ service.post('/auth/mfa/verify', async (req, res) => {
 
 service.post('/auth/password/change', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const body = z
       .object({ currentPassword: z.string().min(1), newPassword: z.string().min(8) })
       .parse(parseBody(req));
     await authService.changePassword(user.id, body.currentPassword, body.newPassword);
-    reply(res, 200, { ok: true });
+    const session = await authService.refreshAccessSession(user.id);
+    reply(res, 200, { ok: true, token: session.token, user: session.user });
   } catch (err) {
     handleRouteError(res, err);
   }
@@ -154,9 +156,28 @@ service.post('/auth/password/reset', async (req, res) => {
   }
 });
 
+service.post('/auth/refresh', async (req, res) => {
+  try {
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
+    reply(res, 200, await authService.refreshAccessSession(user.id));
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
+service.post('/auth/logout', async (req, res) => {
+  try {
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
+    await authService.logoutSession(user.id);
+    reply(res, 200, { ok: true });
+  } catch (err) {
+    handleRouteError(res, err);
+  }
+});
+
 service.get('/auth/me', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     const me = await authService.me(user.id);
     reply(res, 200, me);
   } catch (err) {
@@ -166,7 +187,7 @@ service.get('/auth/me', async (req, res) => {
 
 service.get('/users/directory', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'notifications:create');
     reply(res, 200, await authService.listStaffDirectory());
   } catch (err) {
@@ -176,7 +197,7 @@ service.get('/users/directory', async (req, res) => {
 
 service.get('/users', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:read');
     reply(res, 200, await authService.listUsers());
   } catch (err) {
@@ -186,7 +207,7 @@ service.get('/users', async (req, res) => {
 
 service.post('/users', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:create');
     const body = z
       .object({
@@ -205,7 +226,7 @@ service.post('/users', async (req, res) => {
 
 service.patch('/users/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:update');
     const id = (req as unknown as { params: { id: string } }).params.id;
     const body = z
@@ -225,7 +246,7 @@ service.patch('/users/:id', async (req, res) => {
 
 service.delete('/users/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'users:delete');
     const id = (req as unknown as { params: { id: string } }).params.id;
     await authService.deleteUser(id, user.id);
@@ -237,7 +258,7 @@ service.delete('/users/:id', async (req, res) => {
 
 service.get('/roles', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertAnyPermission(user, ['roles:manage', 'users:read']);
     reply(res, 200, await authService.listRoles());
   } catch (err) {
@@ -247,7 +268,7 @@ service.get('/roles', async (req, res) => {
 
 service.get('/permissions', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
     reply(res, 200, await authService.listPermissions());
   } catch (err) {
@@ -257,7 +278,7 @@ service.get('/permissions', async (req, res) => {
 
 service.post('/roles', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
     const body = z
       .object({
@@ -273,7 +294,7 @@ service.post('/roles', async (req, res) => {
 
 service.put('/roles/:id/permissions', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
     const id = (req as unknown as { params: { id: string } }).params.id;
     const body = z
@@ -290,7 +311,7 @@ service.put('/roles/:id/permissions', async (req, res) => {
 
 service.delete('/roles/:id', async (req, res) => {
   try {
-    const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+    const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'roles:manage');
     const id = (req as unknown as { params: { id: string } }).params.id;
     await authService.deleteRole(id);
@@ -310,7 +331,8 @@ service.get('/internal/ping', async (req, res) => {
 });
 
 const port = Number(process.env.AUTH_PORT || 3001);
+const host = getListenHost('internal');
 createDb();
-service.start(port).then(() => {
-  console.log(`[auth-service] listening on ${port}`);
+service.start(port, host).then(() => {
+  console.log(`[auth-service] listening on ${host}:${port}`);
 });

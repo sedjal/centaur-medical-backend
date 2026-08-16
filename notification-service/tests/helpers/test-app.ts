@@ -6,7 +6,7 @@ import restana from 'restana';
 import { z } from 'zod';
 import {
   parseBody,
-  readInternalUser,
+  readInternalUserWithSession,
   requireServiceToken,
   getClientIp,
   reply,
@@ -105,7 +105,7 @@ export function createNotifTestApp() {
 
   service.get('/notifications', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       const query = (req as { query?: Record<string, string> }).query || {};
       const filters = listQuerySchema.parse({
         read: query.read,
@@ -121,7 +121,7 @@ export function createNotifTestApp() {
 
   service.get('/notifications/stream', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       assertPermission(user, 'notifications:read');
       sse.addSseConnection(user.id, res as unknown as sse.SseSink, req);
     } catch (err) {
@@ -131,7 +131,7 @@ export function createNotifTestApp() {
 
   service.get('/notifications/:id', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       const id = (req as { params: { id: string } }).params.id;
       reply(res, 200, await notificationService.getNotification(user, id));
     } catch (err) {
@@ -141,7 +141,7 @@ export function createNotifTestApp() {
 
   service.post('/notifications', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       const body = createSchema.parse(parseBody(req));
       reply(res, 201, await notificationService.createNotification(user, body, getClientIp(req)));
     } catch (err) {
@@ -151,7 +151,7 @@ export function createNotifTestApp() {
 
   service.patch('/notifications/:id/read', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       const id = (req as { params: { id: string } }).params.id;
       reply(res, 200, await notificationService.markNotificationRead(user, id, getClientIp(req)));
     } catch (err) {
@@ -161,7 +161,7 @@ export function createNotifTestApp() {
 
   service.patch('/notifications/:id/cancel', async (req, res) => {
     try {
-      const user = readInternalUser(req.headers as Record<string, string | string[] | undefined>);
+      const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
       const id = (req as { params: { id: string } }).params.id;
       reply(res, 200, await notificationService.cancelNotification(user, id, getClientIp(req)));
     } catch (err) {
@@ -211,6 +211,7 @@ export function buildInternalHeaders(user: {
     [INTERNAL_HEADERS.USER_PERMISSIONS]: JSON.stringify(user.permissions),
     [INTERNAL_HEADERS.USER_FIRST_NAME]: user.firstName,
     [INTERNAL_HEADERS.USER_LAST_NAME]: user.lastName,
+    [INTERNAL_HEADERS.SESSION_VER]: '1',
     'content-type': 'application/json',
   };
 }

@@ -114,6 +114,16 @@ const PERMISSIONS = [
  * @param {import('knex').Knex} knex
  */
 exports.seed = async function seed(knex) {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEV_SEED !== '1') {
+    throw new Error(
+      'Refusing to run development seed in production. Set ALLOW_DEV_SEED=1 only for an explicitly approved bootstrap.'
+    );
+  }
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (!seedPassword || seedPassword.length < 8) {
+    throw new Error('SEED_ADMIN_PASSWORD must be set (>= 8 characters) to seed users.');
+  }
+
   await knex('audit_logs').del();
   await knex('notifications').del();
   if (await knex.schema.hasTable('email_notifications')) {
@@ -154,7 +164,7 @@ exports.seed = async function seed(knex) {
   }
   await knex('role_permissions').insert(rolePerms);
 
-  const passwordHash = await argon2.hash('Admin123!', { type: argon2.argon2id });
+  const passwordHash = await argon2.hash(seedPassword, { type: argon2.argon2id });
 
   await knex('users').insert([
     {

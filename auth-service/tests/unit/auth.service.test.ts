@@ -99,9 +99,10 @@ test('auth.service: login — invalid / inactive / wrong password', async (t) =>
   });
   try {
     await authService.login('off@test.com', 'Admin123!');
-    t.fail('expected 403');
+    t.fail('expected 401');
   } catch (e) {
-    t.equal((e as AppError).statusCode, 403);
+    t.equal((e as AppError).statusCode, 401);
+    t.match((e as Error).message, /Invalid credentials/);
   }
   restoreAuthDbMock();
 
@@ -423,8 +424,14 @@ test('auth.service: users CRUD + delete guards', async (t) => {
   t.ok(created.id);
 
   await authService.updateUser('u-med', { firstName: 'MedUp', isActive: false, role: 'SECRETAIRE' });
-  const me = await authService.me('u-med');
-  t.equal(me.first_name, 'MedUp');
+  const listed = await authService.listUsers();
+  t.equal(listed.find((u: { id: string }) => u.id === 'u-med')?.first_name, 'MedUp');
+  try {
+    await authService.me('u-med');
+    t.fail('inactive me');
+  } catch (e) {
+    t.equal((e as AppError).statusCode, 401);
+  }
 
   await authService.deleteUser('u-med', 'u-admin');
   t.equal(state.users.length, 3);
@@ -527,5 +534,70 @@ test('auth.service: roles + permissions', async (t) => {
   }
 
   cleanup();
+  t.end();
+});
+
+test('auth.service: MFA refuse un compte inactif', async (t) => {
+  const pw = await hash('Admin123!');
+  const code = '654321';
+  installAuthDbMock({
+    users: [
+      {
+        id: 'u-admin',
+        email: 'admin@test.com',
+        password_hash: pw,
+        first_name: 'A',
+        last_name: 'D',
+        role_id: 'r-admin',
+        is_active: false,
+        must_change_password: false,
+        mfa_enabled: true,
+        mfa_required: true,
+      },
+    ],
+    mfa_codes: [
+      {
+        id: 'mfa-off',
+        user_id: 'u-admin',
+        code_hash: hashOtp(code),
+        attempts: 0,
+        expires_at: new Date(Date.now() + 600_000).toISOString(),
+        used_at: null,
+        created_at: new Date().toISOString(),
+      },
+    ],
+  });
+  try {
+    await authService.verifyMfa('u-admin', code);
+    t.fail('expected 401');
+  } catch (e) {
+    t.equal((e as AppError).statusCode, 401);
+  }
+  restoreAuthDbMock();
+  t.end();
+});
+
+test('auth.service: impossible de désactiver le dernier ADMIN', async (t) => {
+  const pw = await hash('Admin123!');
+  installAuthDbMock({
+    users: [
+      {
+        id: 'u-admin',
+        email: 'admin@test.com',
+        password_hash: pw,
+        first_name: 'A',
+        last_name: 'D',
+        role_id: 'r-admin',
+        is_active: true,
+      },
+    ],
+  });
+  try {
+    await authService.updateUser('u-admin', { isActive: false });
+    t.fail('last admin deactivate');
+  } catch (e) {
+    t.equal((e as AppError).statusCode, 403);
+  }
+  restoreAuthDbMock();
   t.end();
 });

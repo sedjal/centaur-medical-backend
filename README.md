@@ -331,13 +331,14 @@ In development the wildcard fallback is kept for DX convenience.
 ### Network isolation
 
 Only the **gateway (port 3000)** should be reachable from the internet (or from the load balancer / reverse proxy).
-Internal services must **not** be exposed publicly:
+Internal services must **not** be exposed publicly.
 
-| Service | Internal port | Should bind |
-|---------|--------------|-------------|
-| Auth | 3001 | `127.0.0.1` or private Docker network |
-| Patient | 3002 | `127.0.0.1` or private Docker network |
-| Notification | 3003 | `127.0.0.1` or private Docker network |
+| Env | Auth / Patient / Notification | Gateway |
+|-----|-------------------------------|---------|
+| DEV | `127.0.0.1` (default) | `0.0.0.0` |
+| TEST | test apps bind ephemeral `127.0.0.1` | test apps ephemeral |
+| DOCKER | `LISTEN_HOST=0.0.0.0` (do **not** publish 3001–3003) | `0.0.0.0`, publish 3000 only |
+| PRODUCTION | `127.0.0.1` unless `LISTEN_HOST` is set | `0.0.0.0` (or `GATEWAY_LISTEN_HOST`) |
 
 In Docker Compose, do **not** publish ports 3001–3003 to the host (`ports`). Use `expose` so they stay on the internal network. Only publish 3000:
 
@@ -346,26 +347,34 @@ services:
   gateway:
     ports:
       - "3000:3000"   # public
+    environment:
+      LISTEN_HOST: "0.0.0.0"
   auth-service:
     expose: ["3001"]  # internal only — do not use `ports`
+    environment:
+      LISTEN_HOST: "0.0.0.0"
   patient-service:
     expose: ["3002"]
+    environment:
+      LISTEN_HOST: "0.0.0.0"
   notification-service:
     expose: ["3003"]
+    environment:
+      LISTEN_HOST: "0.0.0.0"
 ```
 
-### Token storage (frontend)
+### Session / token storage (frontend)
 
-The frontend currently stores JWTs in **`localStorage`** (`centaur_token`, `centaur_mfa_token`, `centaur_temp_token`).
+The frontend is a **Vue plugin** (often hosted on another origin). ACCESS JWTs stay in **`localStorage`** (`centaur_token`) and are sent as **`Authorization: Bearer`**. HttpOnly cookies were evaluated in Phase 20 and **not** adopted (cross-origin plugin + SSE + CSRF + dual-auth would be a partial, breaking migration).
 
-**Risk**: any XSS vulnerability in the SPA can exfiltrate the Bearer token.
+**Session model:**
+- ACCESS JWT TTL defaults to **`15m`** (`JWT_EXPIRES_IN`).
+- Claim `sv` matches `users.session_version`. Logout, password change/reset, deactivate, role change, and role-permission updates bump `sv` and invalidate outstanding ACCESS tokens immediately.
+- Frontend refreshes ACCESS about every 10 minutes while logged in (`POST /api/auth/refresh`).
+- SSE uses `GET /api/notifications/stream` with the same Bearer token (never `?access_token=`).
+- XSS can still steal a Bearer token until TTL or `sv` bump; keep a short ACCESS TTL.
 
-**Current state (prototype)**:
-- Access token TTL defaults to **`8h`** via `JWT_EXPIRES_IN`. That is convenient for local dev but **not** a short TTL for production.
-- Tokens are purged from `localStorage` on any 401 response and on logout.
-- JWT is never logged server-side.
-
-**Production (not implemented here)**: reduce access token to ~**15 min**, add a **refresh token** in an **HttpOnly** / `Secure` / `SameSite=Strict` cookie set by the gateway. `localStorage` JWTs remain an XSS risk.
+`knex seed` is **blocked in production** unless `ALLOW_DEV_SEED=1`. User passwords come from `SEED_ADMIN_PASSWORD` (never a baked-in production secret).
 
 ### Rate limiting
 

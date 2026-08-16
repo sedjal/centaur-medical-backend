@@ -284,7 +284,7 @@ export async function createNotification(
   }
 
   const recipient = await getDb()('users').where({ id: recipientId }).first();
-  if (!recipient) throw new AppError('Recipient not found', 404);
+  if (!recipient || recipient.is_active === false) throw new AppError('Recipient not found', 404);
 
   let patientId: string | null = null;
   if (input.patientId) {

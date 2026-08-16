@@ -22,6 +22,7 @@ export function buildIdentityHeaders(user?: JwtPayload): Record<string, string> 
     headers[INTERNAL_HEADERS.USER_PERMISSIONS] = JSON.stringify(user.permissions || []);
     headers[INTERNAL_HEADERS.USER_FIRST_NAME] = user.firstName || '';
     headers[INTERNAL_HEADERS.USER_LAST_NAME] = user.lastName || '';
+    headers[INTERNAL_HEADERS.SESSION_VER] = String(Number(user.sv) || 0);
   }
   return headers;
 }

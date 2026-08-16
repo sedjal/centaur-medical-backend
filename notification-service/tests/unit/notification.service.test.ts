@@ -159,6 +159,27 @@ test('notifications: recipient inexistant → 404', async (t) => {
   }
 });
 
+test('notifications: recipient inactif → 404', async (t) => {
+  const { state } = installNotifDbMock(defaultNotifSeed());
+  const inactive = state.users.find((u) => u.id === 'u-sec');
+  if (inactive) inactive.is_active = false;
+  try {
+    await createNotification(creator(), {
+      recipientId: 'u-sec',
+      type: 'GENERAL',
+      title: 'x',
+      message: 'y',
+      scheduledAt: new Date().toISOString(),
+    });
+    t.fail('should throw');
+  } catch (e) {
+    t.equal((e as AppError).statusCode, 404);
+  } finally {
+    restoreNotifDbMock();
+    t.end();
+  }
+});
+
 test('notifications: patient service interdit → 403', async (t) => {
   installNotifDbMock(defaultNotifSeed());
   try {

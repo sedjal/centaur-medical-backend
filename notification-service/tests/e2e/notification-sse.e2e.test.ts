@@ -9,7 +9,7 @@ process.env.NOTIFICATION_SSE_HEARTBEAT_MS = '80';
 import test from 'tape';
 import { processScheduledNotifications } from '../../src/notification.service';
 import { sseConnectionCount } from '../../src/notification-sse';
-import { startNotificationE2e, USERS, waitForRecipient, notificationsFor, staffHeaders } from './helpers/harness';
+import { startNotificationE2e, USERS, waitForRecipient, notificationsFor, staffHeaders, bearer } from './helpers/harness';
 import { prescriptionPayload } from './helpers/notification-e2e-seed';
 import { gwHttp } from './helpers/e2e-gateway';
 import { parseSseCreatedPayloads, readUntil, notifStreamUrl, gatewayStreamUrl } from './helpers/sse-read';
@@ -18,7 +18,8 @@ test('e2e SSE: SENT → event → GET inbox → PATCH read (via Gateway)', async
   const h = await startNotificationE2e();
   const ac = new AbortController();
   try {
-    const stream = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.b }), {
+    const stream = await fetch(gatewayStreamUrl(h.gatewayPort), {
+      headers: bearer(h.tokens.b),
       signal: ac.signal,
     });
     t.equal(stream.status, 200);

@@ -153,12 +153,32 @@ export function defaultPatientSeed(): PatientDbSeed {
         email: 'urg@test.com',
         first_name: 'Léa',
         last_name: 'Urg',
+        is_active: true,
+        session_version: 1,
       },
       {
         id: 'u-test',
         email: 'test@test.com',
         first_name: 'Test',
         last_name: 'User',
+        is_active: true,
+        session_version: 1,
+      },
+      {
+        id: 'u-int',
+        email: 'int@test.com',
+        first_name: 'Int',
+        last_name: 'Test',
+        is_active: true,
+        session_version: 1,
+      },
+      {
+        id: 'u-gw',
+        email: 'gw@test.com',
+        first_name: 'Gw',
+        last_name: 'Test',
+        is_active: true,
+        session_version: 1,
       },
     ],
   };
@@ -214,9 +234,10 @@ function cascadeDeletePatient(state: PatientDbState, patientIds: string[]): void
   if (hasRx) {
     throw new Error('FK RESTRICT: cannot delete patient with prescriptions');
   }
-  state.medical_history = state.medical_history.filter(
-    (h) => !patientIds.includes(String(h.patient_id))
-  );
+  const hasHistory = state.medical_history.some((h) => patientIds.includes(String(h.patient_id)));
+  if (hasHistory) {
+    throw new Error('FK RESTRICT: cannot delete patient with medical history');
+  }
   const mrIds = state.medical_records
     .filter((mr) => patientIds.includes(String(mr.patient_id)))
     .map((mr) => String(mr.id));

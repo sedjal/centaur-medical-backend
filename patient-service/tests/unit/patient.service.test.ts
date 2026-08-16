@@ -458,6 +458,28 @@ test('DELETE: cascade medical_records in mock', async (t) => {
   t.end();
 });
 
+test('DELETE: medical_history present → 409, timeline kept', async (t) => {
+  const { state } = setup();
+  state.medical_history.push({
+    id: 'mh-keep',
+    patient_id: 'p-urg-1',
+    event_type: 'NOTE',
+    occurred_at: '2026-08-11T10:00:00Z',
+    service: 'URGENCE',
+    summary: 'Immutable entry',
+  });
+  try {
+    await deletePatient(adminUser(), 'p-urg-1');
+    t.fail('expected 409');
+  } catch (e) {
+    t.equal((e as AppError).statusCode, 409);
+  }
+  t.ok(state.patients.some((p) => p.id === 'p-urg-1'));
+  t.equal(state.medical_history.length, 1);
+  teardown();
+  t.end();
+});
+
 test('DOSSIERS: integrity missing MR → 500', (t) => {
   try {
     assertMedicalRecordIntegrity({ service: 'URGENCE' }, null, null);

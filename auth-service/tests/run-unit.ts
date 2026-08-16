@@ -8,3 +8,4 @@ import './unit/mfa-purpose.test';
 import './unit/admin-reset.test';
 import './unit/auth.service.test';
 import './unit/middleware.test';
+import './unit/session.test';

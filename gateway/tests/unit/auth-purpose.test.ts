@@ -72,11 +72,24 @@ test('sans Bearer → Unauthorized', (t) => {
   t.end();
 });
 
-test('requireAuthSse: ACCESS via access_token query', (t) => {
+test('requireAuthSse: ACCESS via query access_token refusé', (t) => {
+  const token = signToken(base('ACCESS'), '5m');
+  t.throws(
+    () =>
+      requireAuthSse({
+        headers: {},
+        url: `/api/notifications/stream?access_token=${token}`,
+      }),
+    /Unauthorized/
+  );
+  t.end();
+});
+
+test('requireAuthSse: ACCESS via Bearer uniquement', (t) => {
   const token = signToken(base('ACCESS'), '5m');
   const user = requireAuthSse({
-    headers: {},
-    url: `/api/notifications/stream?access_token=${token}`,
+    headers: { authorization: `Bearer ${token}` },
+    url: `/api/notifications/stream?access_token=should-be-ignored`,
   });
   t.equal(user.sub, 'u1');
   t.end();
@@ -90,7 +103,7 @@ test('requireAuthSse: query token MFA refusé', (t) => {
         headers: {},
         url: `/api/notifications/stream?access_token=${token}`,
       }),
-    /Invalid access token/
+    /Unauthorized/
   );
   t.end();
 });

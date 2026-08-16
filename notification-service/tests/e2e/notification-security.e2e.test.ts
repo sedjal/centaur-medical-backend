@@ -8,27 +8,33 @@ process.env.NODE_ENV = 'test';
 import fs from 'fs';
 import path from 'path';
 import test from 'tape';
-import { startNotificationE2e, USERS, waitForRecipient, notificationsFor, staffHeaders } from './helpers/harness';
+import { startNotificationE2e, USERS, waitForRecipient, notificationsFor, staffHeaders, bearer } from './helpers/harness';
 import { prescriptionPayload } from './helpers/notification-e2e-seed';
 import { gwHttp } from './helpers/e2e-gateway';
 import { parseSseCreatedPayloads, readAvailable, readUntil, notifStreamUrl, gatewayStreamUrl } from './helpers/sse-read';
 
-test('e2e sécurité: stream sans token / MFA / reset / sans permission', async (t) => {
+test('e2e sécurité: stream sans token / MFA / reset / change / query JWT / sans permission', async (t) => {
   const h = await startNotificationE2e();
   try {
     const none = await fetch(gatewayStreamUrl(h.gatewayPort));
     t.equal(none.status, 401);
 
-    const mfa = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.mfa }));
+    const queryJwt = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.b }));
+    t.equal(queryJwt.status, 401, 'JWT query interdit');
+
+    const mfa = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.mfa) });
     t.equal(mfa.status, 401);
 
-    const reset = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.reset }));
+    const reset = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.reset) });
     t.equal(reset.status, 401);
 
-    const noPerm = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.noPerm }));
+    const change = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.change) });
+    t.equal(change.status, 401);
+
+    const noPerm = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.noPerm) });
     t.equal(noPerm.status, 403);
 
-    const ok = await fetch(gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.b }));
+    const ok = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.b) });
     t.equal(ok.status, 200);
     ok.body?.cancel();
   } finally {
@@ -41,10 +47,10 @@ test('e2e sécurité: ?userId= ne permet pas d’espionner un autre utilisateur'
   const h = await startNotificationE2e();
   const ac = new AbortController();
   try {
-    const streamC = await fetch(
-      gatewayStreamUrl(h.gatewayPort, { access_token: h.tokens.c, userId: USERS.b.id }),
-      { signal: ac.signal }
-    );
+    const streamC = await fetch(gatewayStreamUrl(h.gatewayPort, { userId: USERS.b.id }), {
+      headers: bearer(h.tokens.c),
+      signal: ac.signal,
+    });
     t.equal(streamC.status, 200);
 
     const created = await gwHttp(h.gatewayPort, 'POST', '/api/prescriptions', {
@@ -151,4 +157,32 @@ test('e2e sécurité: pas de if (role === MEDECIN) dans le métier notifications
   for (const root of roots) walk(root);
   t.deepEqual(hits, []);
   t.end();
+});
+
+test('e2e session: sv bump / compte désactivé → 401 (REST + SSE)', async (t) => {
+  const h = await startNotificationE2e();
+  try {
+    const ok = await gwHttp(h.gatewayPort, 'GET', '/api/notifications', { token: h.tokens.b });
+    t.equal(ok.status, 200);
+
+    const b = h.state.users.find((u) => u.id === USERS.b.id)!;
+    b.session_version = 2;
+    const stale = await gwHttp(h.gatewayPort, 'GET', '/api/notifications', { token: h.tokens.b });
+    t.equal(stale.status, 401, 'ancien JWT après permission/session bump');
+
+    const staleStream = await fetch(gatewayStreamUrl(h.gatewayPort), { headers: bearer(h.tokens.b) });
+    t.equal(staleStream.status, 401);
+    staleStream.body?.cancel();
+
+    b.session_version = 1;
+    b.is_active = false;
+    const inactive = await gwHttp(h.gatewayPort, 'GET', '/api/notifications', { token: h.tokens.b });
+    t.equal(inactive.status, 401, 'compte désactivé');
+
+    const other = await gwHttp(h.gatewayPort, 'GET', '/api/notifications', { token: h.tokens.a });
+    t.equal(other.status, 200, 'autre session intacte');
+  } finally {
+    await h.close();
+    t.end();
+  }
 });

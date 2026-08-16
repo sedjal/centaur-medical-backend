@@ -414,10 +414,14 @@ export async function deletePatient(user: InternalUser, id: string, ip?: string)
   if (!existing) throw new AppError('Patient not found', 404);
   assertServiceAccess(user, existing.service as ServiceType);
 
-  // RESTRICT: do not silently erase prescription history with the patient
+  // RESTRICT: do not silently erase prescription or medical-history with the patient
   const existingRx = await getDb()('prescriptions').where({ patient_id: id }).first();
   if (existingRx) {
     throw new AppError('Cannot delete patient with existing prescriptions', 409);
+  }
+  const existingHistory = await getDb()('medical_history').where({ patient_id: id }).first();
+  if (existingHistory) {
+    throw new AppError('Cannot delete patient with existing medical history', 409);
   }
 
   await getDb().transaction(async (trx) => {

@@ -1,6 +1,6 @@
--- Centaur Medical — complete database bootstrap
--- PostgreSQL 14+
--- Creates schema + seed data. Password for all users: Admin123!
+-- Centaur Medical — DEV/TEST database dump only. Do not use as a production database.
+-- Seed credentials for knex seed come from SEED_ADMIN_PASSWORD (blocked in production
+-- unless ALLOW_DEV_SEED=1). Hashes below are local samples, not production secrets.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -56,6 +56,7 @@ CREATE TABLE users (
   must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
   mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   mfa_required BOOLEAN NOT NULL DEFAULT FALSE,
+  session_version INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -121,7 +122,7 @@ CREATE INDEX idx_prescription_items_rx ON prescription_items(prescription_id);
 
 CREATE TABLE medical_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
   event_type VARCHAR(40) NOT NULL,
   occurred_at TIMESTAMPTZ NOT NULL,
   service service_type NOT NULL,

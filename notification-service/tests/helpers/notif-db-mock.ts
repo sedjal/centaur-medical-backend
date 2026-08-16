@@ -40,6 +40,7 @@ export function defaultNotifSeed(): Partial<NotifDbState> {
         last_name: 'Urg',
         is_active: true,
         role_name: 'MEDECIN',
+        session_version: 1,
       },
       {
         id: 'u-sec',
@@ -48,6 +49,7 @@ export function defaultNotifSeed(): Partial<NotifDbState> {
         last_name: 'Sec',
         is_active: true,
         role_name: 'SECRETAIRE',
+        session_version: 1,
       },
       {
         id: 'u-admin',
@@ -56,6 +58,7 @@ export function defaultNotifSeed(): Partial<NotifDbState> {
         last_name: 'Min',
         is_active: true,
         role_name: 'ADMIN',
+        session_version: 1,
       },
     ],
     patients: [
