@@ -24,6 +24,9 @@ export interface CreatePrescriptionInput {
   prescribedAt: string;
   notes?: string | null;
   medications: PrescriptionMedicationInput[];
+  patientAge?: string | null;
+  patientGender?: string | null;
+  doctorName?: string | null;
 }
 
 export interface PrescriptionListFilters {
@@ -54,6 +57,9 @@ export interface PrescriptionDto {
   medications: PrescriptionMedicationDto[];
   createdAt: string;
   updatedAt: string;
+  prescriptionNumber: number;
+  patientAge: string | null;
+  patientGender: string | null;
 }
 
 type DbRow = Record<string, unknown>;
@@ -162,13 +168,16 @@ async function toDto(row: DbRow): Promise<PrescriptionDto> {
     id: String(row.id),
     patientId: String(row.patient_id),
     doctorId,
-    doctorName: await doctorDisplayName(doctorId),
+    doctorName: row.doctor_name ? String(row.doctor_name) : await doctorDisplayName(doctorId),
     prescribedAt,
     status: String(row.status) as PrescriptionStatus,
     notes: row.notes == null ? null : String(row.notes),
     medications,
     createdAt,
     updatedAt,
+    prescriptionNumber: Number(row.prescription_number || 0),
+    patientAge: row.patient_age == null ? null : String(row.patient_age),
+    patientGender: row.patient_gender == null ? null : String(row.patient_gender),
   };
 }
 
@@ -212,6 +221,7 @@ export async function createPrescription(
 
   const created = await getDb().transaction(async (trx) => {
     const now = new Date().toISOString();
+    const resolvedDoctorName = input.doctorName || await doctorDisplayName(doctorId);
     const [rx] = await trx('prescriptions')
       .insert({
         patient_id: input.patientId,
@@ -221,6 +231,9 @@ export async function createPrescription(
         notes: input.notes?.trim() ? input.notes.trim() : null,
         created_at: now,
         updated_at: now,
+        patient_age: input.patientAge?.trim() ? input.patientAge.trim() : null,
+        patient_gender: input.patientGender?.trim() ? input.patientGender.trim() : null,
+        doctor_name: resolvedDoctorName?.trim() ? resolvedDoctorName.trim() : null,
       })
       .returning('*');
 

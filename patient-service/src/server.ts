@@ -151,6 +151,9 @@ const createPrescriptionSchema = z.object({
   prescribedAt: z.string().min(1),
   notes: z.string().optional().nullable(),
   medications: z.array(medicationSchema).min(1),
+  patientAge: z.string().optional().nullable(),
+  patientGender: z.string().optional().nullable(),
+  doctorName: z.string().optional().nullable(),
 });
 
 service.get('/prescriptions', async (req, res) => {
