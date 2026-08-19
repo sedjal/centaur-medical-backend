@@ -63,11 +63,13 @@ service.get('/patients', async (req, res) => {
     const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
     assertPermission(user, 'patients:read');
     const query = (req as { query?: Record<string, string> }).query || {};
-    const list = await patientService.listPatients(user, {
+    const result = await patientService.listPatients(user, {
       service: query.service as 'GENERAL' | 'URGENCE' | 'ONCOLOGIE' | 'CARDIOLOGIE' | undefined,
       search: query.search,
+      page: query.page ? parseInt(query.page, 10) : undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : undefined,
     });
-    reply(res, 200, list);
+    reply(res, 200, result);
   } catch (err) {
     handleRouteError(res, err);
   }
@@ -169,6 +171,8 @@ service.get('/prescriptions', async (req, res) => {
         status: query.status as 'ACTIVE' | 'CANCELLED' | undefined,
         from: query.from,
         to: query.to,
+        page: query.page ? parseInt(query.page, 10) : undefined,
+        limit: query.limit ? parseInt(query.limit, 10) : undefined,
       })
     );
   } catch (err) {
@@ -245,7 +249,11 @@ service.get('/medical-history', async (req, res) => {
       from: query.from,
       to: query.to,
     });
-    reply(res, 200, await medicalHistoryService.getMedicalHistory(user, filters));
+    reply(res, 200, await medicalHistoryService.getMedicalHistory(user, {
+      ...filters,
+      page: query.page ? parseInt(query.page, 10) : undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : undefined,
+    }));
   } catch (err) {
     handleRouteError(res, err);
   }

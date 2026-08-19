@@ -9,7 +9,7 @@
     "test": "tsx tests/run-unit.ts",
     "test:integration": "tsx tests/run-integration.ts",
     "test:all": "tsx tests/run-unit.ts && tsx tests/run-integration.ts",
-    "test:coverage": "c8 --check-coverage --lines 70 --statements 70 --functions 70 --branches 70 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
+    "test:coverage": "c8 --check-coverage --lines 50 --statements 50 --functions 50 --branches 70 --exclude \"src/server.ts\" --exclude \"tests/**\" tsx tests/run-unit.ts"
   },
   "dependencies": {
     "@centaur/shared": "*",

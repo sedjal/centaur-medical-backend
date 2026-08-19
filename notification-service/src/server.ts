@@ -149,7 +149,11 @@ service.get('/notifications', async (req, res) => {
       type: query.type,
       patientId: query.patientId,
     });
-    reply(res, 200, await notificationService.listNotifications(user, filters));
+    reply(res, 200, await notificationService.listNotifications(user, {
+      ...filters,
+      page: query.page ? parseInt(query.page, 10) : undefined,
+      limit: query.limit ? parseInt(query.limit, 10) : undefined,
+    }));
   } catch (err) {
     handleRouteError(res, err);
   }

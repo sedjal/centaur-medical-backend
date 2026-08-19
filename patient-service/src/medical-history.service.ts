@@ -25,6 +25,8 @@ export interface MedicalHistoryFilters {
   type?: MedicalHistoryEventType;
   from?: string;
   to?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface CreateMedicalHistoryInput {
@@ -284,7 +286,18 @@ export async function getMedicalHistory(
     query = query.where('occurred_at', '<=', filters.to);
   }
 
-  const rows = (await query.orderBy('occurred_at', 'desc')) as DbRow[];
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 50));
+  const offset = (page - 1) * limit;
+
+  const [{ count }] = (await query.clone().count('id as count')) as [{ count: number | string }];
+  const total = Number(count);
+
+  const rows = (await query
+    .orderBy('occurred_at', 'desc')
+    .limit(limit)
+    .offset(offset)) as DbRow[];
+
   const names = await doctorNamesById(
     rows.map((r) => (r.doctor_id == null ? '' : String(r.doctor_id)))
   );
@@ -292,5 +305,5 @@ export async function getMedicalHistory(
   for (const row of rows) {
     items.push(await toDto(row, names));
   }
-  return { items, total: items.length };
+  return { items, total, page, limit };
 }

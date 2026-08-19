@@ -97,20 +97,74 @@ export async function listPatients(
   filters?: {
     service?: ServiceType;
     search?: string;
+    page?: number;
+    limit?: number;
   }
-) {
+): Promise<{ items: DbRow[]; total: number; page: number; limit: number }> {
   assertPermission(user, 'patients:read');
   const scope = resolveListScope(user, filters?.service);
-  let q = getDb()('patients').select('*').whereIn('service', scope).orderBy('created_at', 'desc');
+
+  const page = Math.max(1, filters?.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters?.limit ?? 50));
+  const offset = (page - 1) * limit;
+
+  let baseQuery = getDb()('patients').whereIn('service', scope);
   if (filters?.search) {
     const s = `%${filters.search}%`;
-    q = q.where(function () {
+    baseQuery = baseQuery.where(function () {
       this.whereILike('first_name', s)
         .orWhereILike('last_name', s)
         .orWhereILike('patient_code', s);
     });
   }
-  return q;
+
+  const [{ count }] = (await baseQuery.clone().count('id as count')) as [{ count: number | string }];
+  const total = Number(count);
+
+  const rows = (await baseQuery
+    .select('*')
+    .orderBy('created_at', 'desc')
+    .limit(limit)
+    .offset(offset)) as DbRow[];
+
+  if (!rows.length) return { items: [], total, page, limit };
+
+  // Batch load medical records (1 query instead of N)
+  const patientIds = rows.map((r) => String(r.id));
+  const medicalRecords = (await getDb()('medical_records').whereIn('patient_id', patientIds)) as DbRow[];
+  const mrByPatientId = new Map(medicalRecords.map((mr) => [String(mr.patient_id), mr]));
+
+  // Batch load specialty records grouped by service (1 query per service at most)
+  const mrByService = new Map<string, string[]>();
+  for (const mr of medicalRecords) {
+    const svc = String(mr.service || '');
+    if (!mrByService.has(svc)) mrByService.set(svc, []);
+    mrByService.get(svc)!.push(String(mr.id));
+  }
+
+  const specialtyMap = new Map<string, DbRow>();
+  const serviceTableMap: Record<string, string> = {
+    GENERAL: 'general_records',
+    URGENCE: 'emergency_records',
+    ONCOLOGIE: 'oncology_records',
+    CARDIOLOGIE: 'cardiology_records',
+  };
+  for (const [svc, mrIds] of mrByService.entries()) {
+    const table = serviceTableMap[svc];
+    if (!table || !mrIds.length) continue;
+    const specialties = (await getDb()(table).whereIn('medical_record_id', mrIds)) as DbRow[];
+    for (const sp of specialties) {
+      specialtyMap.set(String(sp.medical_record_id), sp);
+    }
+  }
+
+  const items: DbRow[] = rows.map((r) => {
+    const mr = mrByPatientId.get(String(r.id)) ?? null;
+    const specialty = mr ? (specialtyMap.get(String(mr.id)) ?? null) : null;
+    return { ...r, medicalRecord: mr, specialty };
+  });
+
+  return { items, total, page, limit };
 }
 
 async function loadSpecialty(medicalRecordId: string, service: ServiceType) {

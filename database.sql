@@ -102,6 +102,10 @@ CREATE TABLE prescriptions (
   prescribed_at TIMESTAMPTZ NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
   notes TEXT NULL,
+  prescription_number SERIAL,
+  patient_age VARCHAR(50) NULL,
+  patient_gender VARCHAR(50) NULL,
+  doctor_name VARCHAR(255) NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

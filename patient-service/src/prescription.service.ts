@@ -35,6 +35,8 @@ export interface PrescriptionListFilters {
   status?: PrescriptionStatus;
   from?: string;
   to?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface PrescriptionMedicationDto {
@@ -143,6 +145,30 @@ async function loadMedications(
     duration: String(r.duration),
     instructions: r.instructions == null ? null : String(r.instructions),
   }));
+}
+
+/** Batch-load all medications for a set of prescription IDs in a single query. */
+async function loadMedicationsBatch(
+  prescriptionIds: string[]
+): Promise<Map<string, PrescriptionMedicationDto[]>> {
+  if (!prescriptionIds.length) return new Map();
+  const rows = await getDb()('prescription_items')
+    .whereIn('prescription_id', prescriptionIds)
+    .orderBy('created_at', 'asc');
+  const map = new Map<string, PrescriptionMedicationDto[]>();
+  for (const r of rows as DbRow[]) {
+    const pid = String(r.prescription_id);
+    if (!map.has(pid)) map.set(pid, []);
+    map.get(pid)!.push({
+      id: String(r.id),
+      name: String(r.medication_name),
+      dosage: String(r.dosage),
+      frequency: String(r.frequency),
+      duration: String(r.duration),
+      instructions: r.instructions == null ? null : String(r.instructions),
+    });
+  }
+  return map;
 }
 
 async function doctorDisplayName(doctorId: string | null | undefined): Promise<string | null> {
@@ -300,10 +326,17 @@ export async function getPrescription(
   return toDto(row);
 }
 
+export interface PrescriptionListResult {
+  items: PrescriptionDto[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export async function listPrescriptions(
   user: InternalUser,
   filters: PrescriptionListFilters = {}
-): Promise<PrescriptionDto[]> {
+): Promise<PrescriptionListResult> {
   assertPermission(user, 'prescriptions:read');
   const allowed = allowedServices(user);
   if (!allowed.length) {
@@ -316,34 +349,94 @@ export async function listPrescriptions(
     serviceFilter = [filters.service];
   }
 
-  let query = getDb()('prescriptions').select('*');
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 50));
+  const offset = (page - 1) * limit;
+
+  // Resolve patient IDs for service-scoped queries when no patientId given
+  let patientIdFilter: string[] | undefined;
+  if (!filters.patientId) {
+    const scopedPatients = (await getDb()('patients')
+      .whereIn('service', serviceFilter)
+      .select('id')) as DbRow[];
+    patientIdFilter = scopedPatients.map((p) => String(p.id));
+    if (!patientIdFilter.length) return { items: [], total: 0, page, limit };
+  }
+
+  let baseQuery = getDb()('prescriptions');
   if (filters.patientId) {
-    query = query.where({ patient_id: filters.patientId });
+    baseQuery = baseQuery.where({ patient_id: filters.patientId });
+  } else if (patientIdFilter) {
+    baseQuery = baseQuery.whereIn('patient_id', patientIdFilter);
   }
   if (filters.status) {
-    query = query.where({ status: filters.status });
+    baseQuery = baseQuery.where({ status: filters.status });
+  }
+  if (filters.from) {
+    baseQuery = baseQuery.where('prescribed_at', '>=', filters.from);
+  }
+  if (filters.to) {
+    baseQuery = baseQuery.where('prescribed_at', '<=', filters.to);
   }
 
-  const rows = (await query.orderBy('prescribed_at', 'desc')) as DbRow[];
-  if (!rows.length) return [];
+  const [{ count }] = (await baseQuery.clone().count('id as count')) as [{ count: number | string }];
+  const total = Number(count);
 
-  const patientIds = [...new Set(rows.map((r) => String(r.patient_id)))];
-  const patients = (await getDb()('patients').whereIn('id', patientIds)) as DbRow[];
-  const patientById = new Map(patients.map((p) => [String(p.id), p]));
+  const rows = (await baseQuery
+    .select('*')
+    .orderBy('prescribed_at', 'desc')
+    .limit(limit)
+    .offset(offset)) as DbRow[];
 
-  const scoped = rows.filter((r) => {
-    const p = patientById.get(String(r.patient_id));
-    if (!p) return false;
-    if (!serviceFilter.includes(p.service as ServiceType)) return false;
-    if (!inDateRange(String(r.prescribed_at), filters.from, filters.to)) return false;
-    return true;
+  if (!rows.length) return { items: [], total, page, limit };
+
+  // Batch-load medications (1 query for all prescriptions)
+  const prescriptionIds = rows.map((r) => String(r.id));
+  const medicationsMap = await loadMedicationsBatch(prescriptionIds);
+
+  // Batch-load doctor names for rows missing doctor_name
+  const missingDoctorIds = [
+    ...new Set(
+      rows
+        .filter((r) => !r.doctor_name && r.doctor_id)
+        .map((r) => String(r.doctor_id))
+    ),
+  ];
+  const doctorMap = new Map<string, string>();
+  if (missingDoctorIds.length) {
+    const users = (await getDb()('users').whereIn('id', missingDoctorIds).select(['id', 'first_name', 'last_name'])) as DbRow[];
+    for (const u of users) {
+      doctorMap.set(String(u.id), `${u.first_name || ''} ${u.last_name || ''}`.trim());
+    }
+  }
+
+  const items: PrescriptionDto[] = rows.map((row) => {
+    const doctorId = row.doctor_id == null ? null : String(row.doctor_id);
+    const prescribedAt = row.prescribed_at
+      ? new Date(String(row.prescribed_at)).toISOString()
+      : new Date().toISOString();
+    const createdAt = row.created_at ? new Date(String(row.created_at)).toISOString() : prescribedAt;
+    const updatedAt = row.updated_at ? new Date(String(row.updated_at)).toISOString() : createdAt;
+    return {
+      id: String(row.id),
+      patientId: String(row.patient_id),
+      doctorId,
+      doctorName: row.doctor_name
+        ? String(row.doctor_name)
+        : (doctorId ? (doctorMap.get(doctorId) ?? null) : null),
+      prescribedAt,
+      status: String(row.status) as PrescriptionStatus,
+      notes: row.notes == null ? null : String(row.notes),
+      medications: medicationsMap.get(String(row.id)) ?? [],
+      createdAt,
+      updatedAt,
+      prescriptionNumber: Number(row.prescription_number || 0),
+      patientAge: row.patient_age == null ? null : String(row.patient_age),
+      patientGender: row.patient_gender == null ? null : String(row.patient_gender),
+    };
   });
 
-  const result: PrescriptionDto[] = [];
-  for (const row of scoped) {
-    result.push(await toDto(row));
-  }
-  return result;
+  return { items, total, page, limit };
 }
 
 export async function listPatientPrescriptions(
@@ -353,7 +446,8 @@ export async function listPatientPrescriptions(
   assertPermission(user, 'prescriptions:read');
   const patient = await loadPatientOr404(patientId);
   assertServiceAccess(user, patient.service as ServiceType);
-  return listPrescriptions(user, { patientId });
+  const result = await listPrescriptions(user, { patientId, limit: 100 });
+  return result.items;
 }
 
 export async function cancelPrescription(

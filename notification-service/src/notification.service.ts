@@ -43,6 +43,8 @@ export interface NotificationListFilters {
   status?: NotificationStatus;
   type?: NotificationType;
   patientId?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface NotificationDto {
@@ -428,7 +430,7 @@ export async function createInternalNotification(
 export async function listNotifications(
   user: InternalUser,
   filters: NotificationListFilters = {}
-): Promise<{ items: NotificationDto[]; total: number }> {
+): Promise<{ items: NotificationDto[]; total: number; page: number; limit: number }> {
   assertPermission(user, 'notifications:read');
 
   if (filters.type && !isType(filters.type)) {
@@ -438,31 +440,44 @@ export async function listNotifications(
     throw new AppError('Invalid notification status', 400);
   }
 
-  let query = getDb()('notifications').select('*');
+  // Build base query without select() so clone() can be used for COUNT
+  let baseQuery = getDb()('notifications');
 
   if (hasPermission(user, 'notifications:read_all')) {
-    // admin-wide list
+    // admin-wide list — no recipient filter
   } else {
-    query = query.where({ recipient_id: user.id });
+    baseQuery = baseQuery.where({ recipient_id: user.id });
   }
 
   if (filters.patientId) {
-    query = query.where({ patient_id: filters.patientId });
+    baseQuery = baseQuery.where({ patient_id: filters.patientId });
   }
   if (filters.type) {
-    query = query.where({ type: filters.type });
+    baseQuery = baseQuery.where({ type: filters.type });
   }
   if (filters.status) {
-    query = query.where({ status: filters.status });
+    baseQuery = baseQuery.where({ status: filters.status });
   } else if (filters.read === true) {
-    query = query.where({ status: 'READ' });
+    baseQuery = baseQuery.where({ status: 'READ' });
   } else if (filters.read === false) {
-    query = query.whereIn('status', ['PENDING', 'SENT']);
+    baseQuery = baseQuery.whereIn('status', ['PENDING', 'SENT']);
   }
 
-  const rows = (await query.orderBy('scheduled_at', 'desc')) as DbRow[];
+  const page = Math.max(1, filters.page ?? 1);
+  const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
+  const offset = (page - 1) * limit;
+
+  const [{ count }] = (await baseQuery.clone().count('id as count')) as [{ count: number | string }];
+  const total = Number(count);
+
+  const rows = (await baseQuery
+    .select('*')
+    .orderBy('scheduled_at', 'desc')
+    .limit(limit)
+    .offset(offset)) as DbRow[];
+
   const items = rows.map(toDto);
-  return { items, total: items.length };
+  return { items, total, page, limit };
 }
 
 export async function getNotification(
