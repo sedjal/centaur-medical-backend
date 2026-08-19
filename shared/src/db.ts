@@ -1,5 +1,12 @@
 import knex, { Knex } from 'knex';
 
+// DATE columns → "YYYY-MM-DD" strings (never JS Date → timezone off-by-one)
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pg = require('pg') as {
+  types: { setTypeParser: (oid: number, parse: (value: string) => string) => void };
+};
+pg.types.setTypeParser(1082, (value: string) => value);
+
 let instance: Knex | null = null;
 /** Test-only override — never use in production code paths. */
 let testOverride: Knex | null = null;

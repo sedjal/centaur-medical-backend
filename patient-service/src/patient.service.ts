@@ -160,11 +160,83 @@ export async function listPatients(
 
   const items: DbRow[] = rows.map((r) => {
     const mr = mrByPatientId.get(String(r.id)) ?? null;
-    const specialty = mr ? (specialtyMap.get(String(mr.id)) ?? null) : null;
-    return { ...r, medicalRecord: mr, specialty };
+    const rawSpecialty = mr ? (specialtyMap.get(String(mr.id)) ?? null) : null;
+    const specialty = formatSpecialtyForClient(r.service as ServiceType, rawSpecialty);
+    return formatPatientForClient({ ...r, medicalRecord: mr, specialty });
   });
 
   return { items, total, page, limit };
+}
+
+function formatDateOnlyForClient(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const mo = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${d}`;
+  }
+  const fallback = String(value).trim();
+  const match = fallback.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : fallback.slice(0, 10);
+}
+
+function formatPatientForClient(patient: DbRow): DbRow {
+  return {
+    ...patient,
+    hospitalization_date: formatDateOnlyForClient(patient.hospitalization_date),
+  };
+}
+
+function formatTimeForClient(value: unknown): string {
+  if (value == null || value === '') return '';
+  const str = String(value).trim();
+  const iso = str.match(/T(\d{2}):(\d{2})/);
+  if (iso) return `${iso[1]}:${iso[2]}`;
+  const match = str.match(/^(\d{1,2}):(\d{2})/);
+  return match ? `${match[1].padStart(2, '0')}:${match[2]}` : str;
+}
+
+function normalizeArrivalTime(value: unknown): string | undefined {
+  if (value == null || value === '') return undefined;
+  const str = String(value).trim();
+  const match = str.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return str;
+  return `${match[1].padStart(2, '0')}:${match[2]}:${match[3] ?? '00'}`;
+}
+
+function mapSpecialtyToClient(service: ServiceType, specialty: DbRow | null | undefined) {
+  if (!specialty) return specialty;
+  if (service === 'URGENCE') {
+    return {
+      arrivalTime: formatTimeForClient(specialty.arrival_time ?? specialty.arrivalTime),
+      triageLevel: specialty.triage_level ?? specialty.triageLevel ?? '',
+      initialSeverity: specialty.initial_severity ?? specialty.initialSeverity ?? '',
+    };
+  }
+  if (service === 'ONCOLOGIE') {
+    return {
+      tumorType: specialty.tumor_type ?? specialty.tumorType ?? '',
+      stage: specialty.stage ?? '',
+      currentTreatment: specialty.current_treatment ?? specialty.currentTreatment ?? '',
+    };
+  }
+  if (service === 'CARDIOLOGIE') {
+    return {
+      ecgResults: specialty.ecg_results ?? specialty.ecgResults ?? '',
+      restingHeartRate: specialty.resting_heart_rate ?? specialty.restingHeartRate,
+      bloodPressure: specialty.blood_pressure ?? specialty.bloodPressure ?? '',
+    };
+  }
+  return { notes: specialty.notes ?? null };
+}
+
+function formatSpecialtyForClient(service: ServiceType, specialty: DbRow | null | undefined) {
+  return mapSpecialtyToClient(service, specialty);
 }
 
 async function loadSpecialty(medicalRecordId: string, service: ServiceType) {
@@ -212,7 +284,11 @@ async function assemblePatientDossier(patientId: string, patientRow?: DbRow) {
     ? await loadSpecialty(String(mr.id), patient.service as ServiceType)
     : null;
   assertMedicalRecordIntegrity(patient, mr, specialty);
-  return { ...patient, medicalRecord: mr, specialty };
+  return formatPatientForClient({
+    ...patient,
+    medicalRecord: mr,
+    specialty: formatSpecialtyForClient(patient.service as ServiceType, specialty),
+  });
 }
 
 export async function getPatient(id: string, user: InternalUser, ip?: string) {
@@ -266,7 +342,7 @@ async function insertSpecialty(
   } else if (service === 'URGENCE') {
     await trx('emergency_records').insert({
       medical_record_id: medicalRecordId,
-      arrival_time: data.arrivalTime,
+      arrival_time: normalizeArrivalTime(data.arrivalTime) ?? data.arrivalTime,
       triage_level: data.triageLevel,
       initial_severity: data.initialSeverity,
     });
@@ -554,7 +630,9 @@ export function buildDashboardFromRows(
   const occupiedBeds = occupancy.reduce((s, o) => s + o.occupied, 0);
   const today = new Date().toISOString().slice(0, 10);
   const critical = scoped.filter((p) => p.status === 'CRITICAL').length;
-  const admittedToday = scoped.filter((p) => String(p.hospitalization_date).slice(0, 10) === today).length;
+  const admittedToday = scoped.filter(
+    (p) => formatDateOnlyForClient(p.hospitalization_date) === today
+  ).length;
   const recent = [...scoped]
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
     .slice(0, 5);
