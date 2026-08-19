@@ -17,23 +17,17 @@ import {
 import * as patientService from './patient.service';
 import * as prescriptionService from './prescription.service';
 import * as medicalHistoryService from './medical-history.service';
+import { attachPatientRequestBody, registerDocumentRoutes } from './documents.routes';
+import { registerClinicalNoteRoutes } from './clinical-notes.routes';
 
 const service = restana();
 
 service.use(async (req, res, next) => {
-  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req as unknown as AsyncIterable<Buffer>) {
-      chunks.push(Buffer.from(chunk));
-    }
-    const raw = Buffer.concat(chunks).toString('utf8');
-    try {
-      (req as { body?: unknown }).body = raw ? JSON.parse(raw) : {};
-    } catch {
-      (req as { body?: unknown }).body = {};
-    }
-  }
-  next();
+  await attachPatientRequestBody(
+    req as { url?: string; method?: string; headers?: Record<string, string | string[] | undefined>; body?: unknown; rawBody?: Buffer },
+    res,
+    next
+  );
 });
 
 const specialtySchema = z.object({
@@ -131,6 +125,9 @@ service.get('/dashboard/stats', async (req, res) => {
   }
 });
 
+registerDocumentRoutes(service);
+registerClinicalNoteRoutes(service);
+
 service.get('/audit-logs', async (req, res) => {
   try {
     const user = await readInternalUserWithSession(req.headers as Record<string, string | string[] | undefined>);
@@ -220,7 +217,15 @@ const historyQuerySchema = z.object({
   patientId: z.string().min(1).optional(),
   service: z.enum(['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE']).optional(),
   type: z
-    .enum(['HOSPITALIZATION', 'CONSULTATION', 'DIAGNOSIS', 'PRESCRIPTION', 'RECORD_UPDATE'])
+    .enum([
+      'HOSPITALIZATION',
+      'CONSULTATION',
+      'DIAGNOSIS',
+      'PRESCRIPTION',
+      'RECORD_UPDATE',
+      'DOCUMENT_ADDED',
+      'CLINICAL_NOTE',
+    ])
     .optional(),
   from: z.string().optional(),
   to: z.string().optional(),

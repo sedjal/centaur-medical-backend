@@ -6,3 +6,4 @@ import './integration/auth-login.test';
 import './integration/auth-me.test';
 import './integration/authorization.test';
 import './integration/patient-isolation.integration.test';
+import './integration/documents-multipart.integration.test';

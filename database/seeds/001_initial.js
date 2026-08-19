@@ -10,6 +10,9 @@ const ROLE_PERMISSIONS = {
     'prescriptions:create',
     'prescriptions:cancel',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
+    'documents:delete',
     'notifications:read',
     'notifications:create',
     'notifications:read_all',
@@ -25,11 +28,13 @@ const ROLE_PERMISSIONS = {
     'roles:manage',
     'audit:read',
     'reports:read',
+    'reports:create',
   ],
   DIRECTION: [
     'patients:read',
     'prescriptions:read',
     'medical_history:read',
+    'documents:read',
     'notifications:read',
     'notifications:create',
     'notifications:read_all',
@@ -49,6 +54,9 @@ const ROLE_PERMISSIONS = {
     'prescriptions:create',
     'prescriptions:cancel',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
+    'documents:delete',
     'notifications:read',
     'notifications:create',
     'notifications:cancel',
@@ -56,12 +64,16 @@ const ROLE_PERMISSIONS = {
     'service:urgence',
     'service:oncologie',
     'service:cardiologie',
+    'reports:read',
+    'reports:create',
   ],
   SECRETAIRE: [
     'patients:read',
     'patients:create',
     'prescriptions:read',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
     'notifications:read',
     'notifications:create',
     'service:general',
@@ -77,10 +89,15 @@ const ROLE_PERMISSIONS = {
     'prescriptions:create',
     'prescriptions:cancel',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
+    'documents:delete',
     'notifications:read',
     'notifications:create',
     'notifications:cancel',
     'service:urgence',
+    'reports:read',
+    'reports:create',
   ],
 };
 
@@ -93,6 +110,9 @@ const PERMISSIONS = [
   ['prescriptions:create', 'Create prescriptions'],
   ['prescriptions:cancel', 'Cancel prescriptions'],
   ['medical_history:read', 'Read medical history'],
+  ['documents:read', 'Read patient documents'],
+  ['documents:create', 'Upload patient documents'],
+  ['documents:delete', 'Delete patient documents'],
   ['notifications:read', 'Read own notifications'],
   ['notifications:create', 'Create notifications'],
   ['notifications:read_all', 'Read all notifications'],
@@ -107,7 +127,8 @@ const PERMISSIONS = [
   ['users:delete', 'Delete users'],
   ['roles:manage', 'Manage roles'],
   ['audit:read', 'Read audit'],
-  ['reports:read', 'Read reports'],
+  ['reports:read', 'Read clinical notes'],
+  ['reports:create', 'Write clinical notes'],
 ];
 
 /**
@@ -131,6 +152,9 @@ exports.seed = async function seed(knex) {
   }
   await knex('prescription_items').del();
   await knex('prescriptions').del();
+  if (await knex.schema.hasTable('patient_documents')) {
+    await knex('patient_documents').del();
+  }
   await knex('medical_history').del();
   await knex('cardiology_records').del();
   await knex('oncology_records').del();

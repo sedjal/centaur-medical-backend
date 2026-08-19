@@ -10,6 +10,8 @@ DROP TABLE IF EXISTS email_notifications CASCADE;
 DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS prescription_items CASCADE;
 DROP TABLE IF EXISTS prescriptions CASCADE;
+DROP TABLE IF EXISTS patient_documents CASCADE;
+DROP TABLE IF EXISTS clinical_notes CASCADE;
 DROP TABLE IF EXISTS medical_history CASCADE;
 DROP TABLE IF EXISTS cardiology_records CASCADE;
 DROP TABLE IF EXISTS oncology_records CASCADE;
@@ -138,6 +140,36 @@ CREATE INDEX idx_medical_history_service ON medical_history(service);
 CREATE INDEX idx_medical_history_type ON medical_history(event_type);
 CREATE INDEX idx_medical_history_patient_occurred ON medical_history(patient_id, occurred_at);
 
+CREATE TABLE patient_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
+  doc_type VARCHAR(20) NOT NULL CHECK (doc_type IN ('ECG', 'CARTE_GROUPE', 'ORDONNANCE', 'AUTRE')),
+  filename VARCHAR(255) NOT NULL,
+  mime_type VARCHAR(120) NOT NULL,
+  byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 5242880),
+  content BYTEA NOT NULL,
+  uploaded_by UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_patient_documents_patient ON patient_documents(patient_id);
+CREATE INDEX idx_patient_documents_created ON patient_documents(created_at);
+CREATE INDEX idx_patient_documents_type ON patient_documents(doc_type);
+CREATE INDEX idx_patient_documents_patient_created ON patient_documents(patient_id, created_at);
+
+CREATE TABLE clinical_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  patient_id UUID NOT NULL REFERENCES patients(id) ON DELETE RESTRICT,
+  title VARCHAR(120) NOT NULL,
+  body TEXT NOT NULL,
+  author_id UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT clinical_notes_title_len_check CHECK (char_length(btrim(title)) >= 1 AND char_length(title) <= 120),
+  CONSTRAINT clinical_notes_body_len_check CHECK (char_length(btrim(body)) >= 1 AND char_length(body) <= 10000)
+);
+CREATE INDEX idx_clinical_notes_patient ON clinical_notes(patient_id);
+CREATE INDEX idx_clinical_notes_created ON clinical_notes(created_at);
+CREATE INDEX idx_clinical_notes_patient_created ON clinical_notes(patient_id, created_at);
+
 CREATE TABLE medical_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   patient_id UUID NOT NULL UNIQUE REFERENCES patients(id) ON DELETE CASCADE,
@@ -237,6 +269,9 @@ INSERT INTO permissions (id, code, description) VALUES
   ('a0000001-0000-0000-0000-000000000011', 'prescriptions:create', 'Create prescriptions'),
   ('a0000001-0000-0000-0000-000000000012', 'prescriptions:cancel', 'Cancel prescriptions'),
   ('a0000001-0000-0000-0000-000000000013', 'medical_history:read', 'Read medical history'),
+  ('a0000001-0000-0000-0000-000000000018', 'documents:read', 'Read patient documents'),
+  ('a0000001-0000-0000-0000-000000000019', 'documents:create', 'Upload patient documents'),
+  ('a0000001-0000-0000-0000-00000000001a', 'documents:delete', 'Delete patient documents'),
   ('a0000001-0000-0000-0000-000000000014', 'notifications:read', 'Read own notifications'),
   ('a0000001-0000-0000-0000-000000000015', 'notifications:create', 'Create notifications'),
   ('a0000001-0000-0000-0000-000000000016', 'notifications:read_all', 'Read all notifications'),
@@ -251,7 +286,8 @@ INSERT INTO permissions (id, code, description) VALUES
   ('a0000001-0000-0000-0000-00000000000c', 'users:delete', 'Delete users'),
   ('a0000001-0000-0000-0000-00000000000d', 'roles:manage', 'Manage roles'),
   ('a0000001-0000-0000-0000-00000000000e', 'audit:read', 'Read audit'),
-  ('a0000001-0000-0000-0000-00000000000f', 'reports:read', 'Read reports');
+  ('a0000001-0000-0000-0000-00000000000f', 'reports:read', 'Read clinical notes'),
+  ('a0000001-0000-0000-0000-00000000001b', 'reports:create', 'Write clinical notes');
 
 -- ADMIN: all
 INSERT INTO role_permissions (role_id, permission_id)
@@ -261,7 +297,7 @@ SELECT '11111111-1111-1111-1111-111111111111', id FROM permissions;
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT '22222222-2222-2222-2222-222222222222', id FROM permissions
 WHERE code IN (
-  'patients:read','prescriptions:read','medical_history:read',
+  'patients:read','prescriptions:read','medical_history:read','documents:read',
   'notifications:read','notifications:create','notifications:read_all','notifications:cancel',
   'service:general','service:urgence','service:oncologie','service:cardiologie',
   'reports:read','audit:read'
@@ -273,8 +309,10 @@ SELECT '33333333-3333-3333-3333-333333333333', id FROM permissions
 WHERE code IN (
   'patients:read','patients:create','patients:update',
   'prescriptions:read','prescriptions:create','prescriptions:cancel','medical_history:read',
+  'documents:read','documents:create','documents:delete',
   'notifications:read','notifications:create','notifications:cancel',
-  'service:general','service:urgence','service:oncologie','service:cardiologie'
+  'service:general','service:urgence','service:oncologie','service:cardiologie',
+  'reports:read','reports:create'
 );
 
 -- SECRETAIRE
@@ -282,15 +320,12 @@ INSERT INTO role_permissions (role_id, permission_id)
 SELECT '44444444-4444-4444-4444-444444444444', id FROM permissions
 WHERE code IN (
   'patients:read','patients:create','prescriptions:read','medical_history:read',
+  'documents:read','documents:create',
   'notifications:read','notifications:create',
   'service:general','service:urgence','service:oncologie','service:cardiologie'
 );
 
-INSERT INTO users (id, email, password_hash, first_name, last_name, role_id, mfa_enabled, mfa_required) VALUES
-  ('b0000001-0000-0000-0000-000000000001', 'sedjalkhouloud@gmail.com', '$argon2id$v=19$m=65536,t=3,p=4$uL17iIwWCikfiNUXiRPGeA$n+2jIEv65os37NSmy8BHjdhu9tz7VhvZVCCC1IwhNX8', 'Khouloud', 'Sedjal', '11111111-1111-1111-1111-111111111111', TRUE, TRUE),
-  ('b0000001-0000-0000-0000-000000000002', 'lydia.sedjal@gmail.com', '$argon2id$v=19$m=65536,t=3,p=4$uL17iIwWCikfiNUXiRPGeA$n+2jIEv65os37NSmy8BHjdhu9tz7VhvZVCCC1IwhNX8', 'Lydia', 'Sedjal', '22222222-2222-2222-2222-222222222222', TRUE, TRUE),
-  ('b0000001-0000-0000-0000-000000000003', 'rachasl720@gmail.com', '$argon2id$v=19$m=65536,t=3,p=4$uL17iIwWCikfiNUXiRPGeA$n+2jIEv65os37NSmy8BHjdhu9tz7VhvZVCCC1IwhNX8', 'Racha', 'Medecin', '33333333-3333-3333-3333-333333333333', FALSE, FALSE),
-  ('b0000001-0000-0000-0000-000000000004', 'khouloudsed2@gmail.com', '$argon2id$v=19$m=65536,t=3,p=4$uL17iIwWCikfiNUXiRPGeA$n+2jIEv65os37NSmy8BHjdhu9tz7VhvZVCCC1IwhNX8', 'Khouloud', 'Secretaire', '44444444-4444-4444-4444-444444444444', FALSE, FALSE);
+-- Users are created by knex seed (SEED_ADMIN_PASSWORD in the environment, never in this dump).
 
 INSERT INTO patients (id, patient_code, first_name, last_name, hospitalization_date, service, status) VALUES
   ('c0000001-0000-0000-0000-000000000001', 'PT-000124', 'Ahmed', 'Benali', '2026-08-11', 'URGENCE', 'CRITICAL'),

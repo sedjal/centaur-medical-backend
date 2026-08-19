@@ -20,6 +20,9 @@ export type Permission =
   | 'prescriptions:create'
   | 'prescriptions:cancel'
   | 'medical_history:read'
+  | 'documents:read'
+  | 'documents:create'
+  | 'documents:delete'
   | 'notifications:read'
   | 'notifications:create'
   | 'notifications:read_all'
@@ -34,7 +37,8 @@ export type Permission =
   | 'users:delete'
   | 'roles:manage'
   | 'audit:read'
-  | 'reports:read';
+  | 'reports:read'
+  | 'reports:create';
 
 export const ALL_PERMISSIONS: Permission[] = [
   'patients:read',
@@ -45,6 +49,9 @@ export const ALL_PERMISSIONS: Permission[] = [
   'prescriptions:create',
   'prescriptions:cancel',
   'medical_history:read',
+  'documents:read',
+  'documents:create',
+  'documents:delete',
   'notifications:read',
   'notifications:create',
   'notifications:read_all',
@@ -60,6 +67,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'roles:manage',
   'audit:read',
   'reports:read',
+  'reports:create',
 ];
 
 export interface JwtPayload {
@@ -104,6 +112,9 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'prescriptions:create',
     'prescriptions:cancel',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
+    'documents:delete',
     'notifications:read',
     'notifications:create',
     'notifications:read_all',
@@ -116,11 +127,13 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'roles:manage',
     'audit:read',
     'reports:read',
+    'reports:create',
   ],
   DIRECTION: [
     'patients:read',
     'prescriptions:read',
     'medical_history:read',
+    'documents:read',
     'notifications:read',
     'notifications:create',
     'notifications:read_all',
@@ -137,16 +150,23 @@ export const ROLE_PERMISSIONS: Record<SystemRoleName, Permission[]> = {
     'prescriptions:create',
     'prescriptions:cancel',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
+    'documents:delete',
     'notifications:read',
     'notifications:create',
     'notifications:cancel',
     ...ALL_SERVICE_PERMISSIONS,
+    'reports:read',
+    'reports:create',
   ],
   SECRETAIRE: [
     'patients:read',
     'patients:create',
     'prescriptions:read',
     'medical_history:read',
+    'documents:read',
+    'documents:create',
     'notifications:read',
     'notifications:create',
     ...ALL_SERVICE_PERMISSIONS,

@@ -13,6 +13,8 @@ export const MEDICAL_HISTORY_EVENT_TYPES = [
   'DIAGNOSIS',
   'PRESCRIPTION',
   'RECORD_UPDATE',
+  'DOCUMENT_ADDED',
+  'CLINICAL_NOTE',
 ] as const;
 
 export type MedicalHistoryEventType = (typeof MEDICAL_HISTORY_EVENT_TYPES)[number];
@@ -55,7 +57,16 @@ export interface MedicalHistoryListDto {
 
 type DbRow = Record<string, unknown>;
 
-const METADATA_KEYS = new Set(['prescriptionId', 'action', 'source']);
+const METADATA_KEYS = new Set([
+  'prescriptionId',
+  'action',
+  'source',
+  'documentId',
+  'docType',
+  'filename',
+  'noteId',
+  'title',
+]);
 
 function isEventType(value: string): value is MedicalHistoryEventType {
   return (MEDICAL_HISTORY_EVENT_TYPES as readonly string[]).includes(value);
@@ -76,6 +87,21 @@ function sanitizeMetadata(
     }
     if (k === 'source' && typeof v === 'string' && v.trim()) {
       out.source = v.trim();
+    }
+    if (k === 'documentId' && typeof v === 'string' && v.trim()) {
+      out.documentId = v.trim();
+    }
+    if (k === 'docType' && typeof v === 'string' && v.trim()) {
+      out.docType = v.trim();
+    }
+    if (k === 'filename' && typeof v === 'string' && v.trim()) {
+      out.filename = v.trim().slice(0, 255);
+    }
+    if (k === 'noteId' && typeof v === 'string' && v.trim()) {
+      out.noteId = v.trim();
+    }
+    if (k === 'title' && typeof v === 'string' && v.trim()) {
+      out.title = v.trim().slice(0, 120);
     }
   }
   return Object.keys(out).length ? out : null;

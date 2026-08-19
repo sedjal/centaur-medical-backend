@@ -16,6 +16,8 @@ export interface PatientDbSeed {
   prescriptions?: Row[];
   prescription_items?: Row[];
   medical_history?: Row[];
+  patient_documents?: Row[];
+  clinical_notes?: Row[];
   audit_logs?: Row[];
   users?: Row[];
 }
@@ -32,14 +34,29 @@ const TABLE_KEYS: (keyof PatientDbState)[] = [
   'prescriptions',
   'prescription_items',
   'medical_history',
+  'patient_documents',
+  'clinical_notes',
   'audit_logs',
   'users',
 ];
 
+function cloneValue(value: unknown): unknown {
+  if (Buffer.isBuffer(value)) return Buffer.from(value);
+  if (Array.isArray(value)) return value.map(cloneValue);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = cloneValue(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function cloneSeed(seed: PatientDbSeed): PatientDbState {
   const out = {} as PatientDbState;
   for (const key of TABLE_KEYS) {
-    out[key] = JSON.parse(JSON.stringify(seed[key] || []));
+    out[key] = cloneValue(seed[key] || []) as Row[];
   }
   return out;
 }
@@ -146,6 +163,7 @@ export function defaultPatientSeed(): PatientDbSeed {
     prescriptions: [],
     prescription_items: [],
     medical_history: [],
+    patient_documents: [],
     audit_logs: [],
     users: [
       {
@@ -237,6 +255,14 @@ function cascadeDeletePatient(state: PatientDbState, patientIds: string[]): void
   const hasHistory = state.medical_history.some((h) => patientIds.includes(String(h.patient_id)));
   if (hasHistory) {
     throw new Error('FK RESTRICT: cannot delete patient with medical history');
+  }
+  const hasDocs = state.patient_documents.some((d) => patientIds.includes(String(d.patient_id)));
+  if (hasDocs) {
+    throw new Error('FK RESTRICT: cannot delete patient with documents');
+  }
+  const hasNotes = state.clinical_notes.some((n) => patientIds.includes(String(n.patient_id)));
+  if (hasNotes) {
+    throw new Error('FK RESTRICT: cannot delete patient with clinical notes');
   }
   const mrIds = state.medical_records
     .filter((mr) => patientIds.includes(String(mr.patient_id)))

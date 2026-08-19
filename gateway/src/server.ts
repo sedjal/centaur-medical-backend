@@ -14,8 +14,14 @@ import {
   getListenHost,
 } from '@centaur/shared';
 import { requireAuth, requireAuthSse } from './auth-guard';
-import { AUTH_URL, PATIENT_URL, NOTIFICATION_URL, hasPermission, proxy } from './proxy';
+import { AUTH_URL, PATIENT_URL, NOTIFICATION_URL, hasPermission, proxy, proxyMultipart, proxyBinary } from './proxy';
 import { proxySse } from './sse-proxy';
+import {
+  isGatewayDocumentUploadPath,
+  MAX_JSON_BYTES,
+  MAX_MULTIPART_BYTES,
+  readLimitedBody,
+} from './request-body';
 
 const service = restana({
   errorHandler: (err, _req, res) => {
@@ -103,18 +109,19 @@ service.use(async (req, res, next) => {
   }
 
   if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    const MAX_JSON_BYTES = 1_048_576;
-    for await (const chunk of req as unknown as AsyncIterable<Buffer>) {
-      size += Buffer.byteLength(chunk);
-      if (size > MAX_JSON_BYTES) {
-        reply(res, 413, { error: 'Payload too large' });
-        return;
-      }
-      chunks.push(Buffer.from(chunk));
+    const isUpload = isGatewayDocumentUploadPath(pathName);
+    const max = isUpload ? MAX_MULTIPART_BYTES : MAX_JSON_BYTES;
+    const read = await readLimitedBody(req as unknown as AsyncIterable<Buffer>, max);
+    if (!read.ok) {
+      reply(res, 413, { error: isUpload ? 'File too large' : 'Payload too large' });
+      return;
     }
-    const raw = Buffer.concat(chunks).toString('utf8');
+    if (isUpload) {
+      (req as { rawBody?: Buffer }).rawBody = read.body;
+      next();
+      return;
+    }
+    const raw = read.body.toString('utf8');
     try {
       (req as { body?: unknown }).body = raw ? JSON.parse(raw) : {};
     } catch {
@@ -446,6 +453,135 @@ service.get('/api/patients/:id/prescriptions', async (req, res) => {
     requirePerm(user, 'prescriptions:read');
     const id = (req as unknown as { params: { id: string } }).params.id;
     const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}/prescriptions`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/documents', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'documents:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}/documents`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/patients/:id/documents', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'documents:create');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const contentType = String(
+      (req.headers as Record<string, string | string[] | undefined>)['content-type'] || ''
+    );
+    const rawBody = (req as { rawBody?: Buffer }).rawBody || Buffer.alloc(0);
+    const result = await proxyMultipart(PATIENT_URL, `/patients/${id}/documents`, {
+      user,
+      body: rawBody,
+      contentType,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/documents/:docId/file', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'documents:read');
+    const params = (req as unknown as { params: { id: string; docId: string } }).params;
+    proxyBinary({
+      targetBase: PATIENT_URL,
+      path: `/patients/${params.id}/documents/${params.docId}/file`,
+      user,
+      incoming: req as unknown as import('http').IncomingMessage,
+      outgoing: res as unknown as import('http').ServerResponse,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.delete('/api/patients/:id/documents/:docId', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'documents:delete');
+    const params = (req as unknown as { params: { id: string; docId: string } }).params;
+    const result = await proxy(
+      PATIENT_URL,
+      'DELETE',
+      `/patients/${params.id}/documents/${params.docId}`,
+      { user, ip: getClientIp(req) }
+    );
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/clinical-notes', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'reports:read');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'GET', `/patients/${id}/clinical-notes`, { user });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.get('/api/patients/:id/clinical-notes/:noteId', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'reports:read');
+    const params = (req as unknown as { params: { id: string; noteId: string } }).params;
+    const result = await proxy(
+      PATIENT_URL,
+      'GET',
+      `/patients/${params.id}/clinical-notes/${params.noteId}`,
+      { user }
+    );
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.post('/api/patients/:id/clinical-notes', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'reports:create');
+    const id = (req as unknown as { params: { id: string } }).params.id;
+    const result = await proxy(PATIENT_URL, 'POST', `/patients/${id}/clinical-notes`, {
+      user,
+      body: (req as { body?: unknown }).body,
+      ip: getClientIp(req),
+    });
+    reply(res, result.status, result.data);
+  } catch (err) {
+    handleError(res, err);
+  }
+});
+
+service.delete('/api/patients/:id/clinical-notes/:noteId', async (req, res) => {
+  try {
+    const user = requireAuth(req);
+    requirePerm(user, 'reports:create');
+    const params = (req as unknown as { params: { id: string; noteId: string } }).params;
+    const result = await proxy(
+      PATIENT_URL,
+      'DELETE',
+      `/patients/${params.id}/clinical-notes/${params.noteId}`,
+      { user, ip: getClientIp(req) }
+    );
     reply(res, result.status, result.data);
   } catch (err) {
     handleError(res, err);

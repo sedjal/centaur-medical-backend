@@ -57,7 +57,7 @@ npx knex migrate:latest --knexfile knexfile.ts
 npx knex seed:run --knexfile knexfile.ts
 ```
 
-> Prefer **knex seed** for Argon2 password hashes (password `Admin123!`).
+> Prefer **knex seed** so password hashes are generated from `SEED_ADMIN_PASSWORD` in the environment (never committed).
 
 ### 2. Run services
 
@@ -90,7 +90,7 @@ Open http://localhost:8084/
 | rachasl720@gmail.com | MEDECIN | JWT |
 | khouloudsed2@gmail.com | SECRETAIRE | JWT |
 
-Password: **`Admin123!`** (demo seed only)
+Password: the value of `SEED_ADMIN_PASSWORD` in your environment (not stored in the repo).
 
 MFA / reset codes are emailed when SMTP is configured; otherwise they are **printed in the auth-service console** (dev only).
 

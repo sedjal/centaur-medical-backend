@@ -267,27 +267,8 @@ export async function verifyMfa(
   mfaTokenSub: string,
   code: string
 ): Promise<{ token: string; user: JwtPayload }> {
-  const userRow = await getDb()
-    .table('users as u')
-    .join('roles as r', 'r.id', 'u.role_id')
-    .where('u.id', mfaTokenSub)
-    .select(
-      'u.id',
-      'u.email',
-      'u.password_hash',
-      'u.first_name',
-      'u.last_name',
-      'u.role_id',
-      'u.is_active',
-      'u.must_change_password',
-      'u.mfa_enabled',
-      'u.mfa_required',
-      'r.name as role_name'
-    )
-    .first();
-
-  if (!userRow) throw new AppError('Invalid MFA session', 401);
-  const user = userRow as UserRow;
+  const user = await loadUserRow(mfaTokenSub);
+  if (!user) throw new AppError('Invalid MFA session', 401);
   if (!user.is_active) throw new AppError('Invalid MFA session', 401);
 
   const mfa = await getDb()('mfa_codes')

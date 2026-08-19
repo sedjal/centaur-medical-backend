@@ -57,6 +57,51 @@ test('RBAC: médecin update sans delete', (t) => {
   t.end();
 });
 
+test('RBAC: documents read/create/delete par rôle', (t) => {
+  t.equal(hasPermission(admin, 'documents:delete'), true);
+  t.equal(hasPermission(secretary, 'documents:create'), true);
+  t.equal(hasPermission(secretary, 'documents:delete'), false);
+  const med: InternalUser = {
+    id: '3',
+    email: 'm@test.com',
+    role: 'MEDECIN',
+    permissions: ROLE_PERMISSIONS.MEDECIN,
+    firstName: 'M',
+    lastName: 'Ed',
+  };
+  t.equal(hasPermission(med, 'documents:read'), true);
+  t.equal(hasPermission(med, 'documents:create'), true);
+  t.equal(hasPermission(med, 'documents:delete'), true);
+  t.end();
+});
+
+test('RBAC: comptes rendus read/create par rôle', (t) => {
+  t.equal(hasPermission(admin, 'reports:create'), true);
+  t.equal(hasPermission(secretary, 'reports:read'), false);
+  t.equal(hasPermission(secretary, 'reports:create'), false);
+  const med: InternalUser = {
+    id: '3',
+    email: 'm@test.com',
+    role: 'MEDECIN',
+    permissions: ROLE_PERMISSIONS.MEDECIN,
+    firstName: 'M',
+    lastName: 'Ed',
+  };
+  t.equal(hasPermission(med, 'reports:read'), true);
+  t.equal(hasPermission(med, 'reports:create'), true);
+  const dir: InternalUser = {
+    id: '4',
+    email: 'd@test.com',
+    role: 'DIRECTION',
+    permissions: ROLE_PERMISSIONS.DIRECTION,
+    firstName: 'D',
+    lastName: 'Ir',
+  };
+  t.equal(hasPermission(dir, 'reports:read'), true);
+  t.equal(hasPermission(dir, 'reports:create'), false);
+  t.end();
+});
+
 test('Service token: valide / invalide', (t) => {
   t.equal(isValidServiceToken('test-service-token'), true);
   t.equal(isValidServiceToken('wrong'), false);

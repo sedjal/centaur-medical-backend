@@ -419,6 +419,14 @@ export async function deletePatient(user: InternalUser, id: string, ip?: string)
   if (existingRx) {
     throw new AppError('Cannot delete patient with existing prescriptions', 409);
   }
+  const existingDoc = await getDb()('patient_documents').where({ patient_id: id }).first();
+  if (existingDoc) {
+    throw new AppError('Cannot delete patient with existing documents', 409);
+  }
+  const existingNote = await getDb()('clinical_notes').where({ patient_id: id }).first();
+  if (existingNote) {
+    throw new AppError('Cannot delete patient with existing clinical notes', 409);
+  }
   const existingHistory = await getDb()('medical_history').where({ patient_id: id }).first();
   if (existingHistory) {
     throw new AppError('Cannot delete patient with existing medical history', 409);

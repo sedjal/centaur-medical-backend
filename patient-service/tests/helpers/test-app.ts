@@ -15,6 +15,8 @@ import {
 import * as patientService from '../../src/patient.service';
 import * as prescriptionService from '../../src/prescription.service';
 import * as medicalHistoryService from '../../src/medical-history.service';
+import { attachPatientRequestBody, registerDocumentRoutes } from '../../src/documents.routes';
+import { registerClinicalNoteRoutes } from '../../src/clinical-notes.routes';
 
 const specialtySchema = z.object({
   notes: z.string().optional().nullable(),
@@ -42,19 +44,17 @@ export function createPatientTestApp() {
   const service = restana();
 
   service.use(async (req, res, next) => {
-    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req as unknown as AsyncIterable<Buffer>) {
-        chunks.push(Buffer.from(chunk));
-      }
-      const raw = Buffer.concat(chunks).toString('utf8');
-      try {
-        (req as { body?: unknown }).body = raw ? JSON.parse(raw) : {};
-      } catch {
-        (req as { body?: unknown }).body = {};
-      }
-    }
-    next();
+    await attachPatientRequestBody(
+      req as {
+        url?: string;
+        method?: string;
+        headers?: Record<string, string | string[] | undefined>;
+        body?: unknown;
+        rawBody?: Buffer;
+      },
+      res,
+      next
+    );
   });
 
   service.get('/patients', async (req, res) => {
@@ -111,6 +111,9 @@ export function createPatientTestApp() {
       handleRouteError(res, err);
     }
   });
+
+  registerDocumentRoutes(service);
+  registerClinicalNoteRoutes(service);
 
   service.get('/dashboard/stats', async (req, res) => {
     try {
@@ -201,7 +204,15 @@ export function createPatientTestApp() {
     patientId: z.string().min(1).optional(),
     service: z.enum(['GENERAL', 'URGENCE', 'ONCOLOGIE', 'CARDIOLOGIE']).optional(),
     type: z
-      .enum(['HOSPITALIZATION', 'CONSULTATION', 'DIAGNOSIS', 'PRESCRIPTION', 'RECORD_UPDATE'])
+      .enum([
+        'HOSPITALIZATION',
+        'CONSULTATION',
+        'DIAGNOSIS',
+        'PRESCRIPTION',
+        'RECORD_UPDATE',
+        'DOCUMENT_ADDED',
+        'CLINICAL_NOTE',
+      ])
       .optional(),
     from: z.string().optional(),
     to: z.string().optional(),
@@ -291,4 +302,28 @@ export async function patientHttp(
     data = text;
   }
   return { status: res.status, data };
+}
+
+export async function patientHttpRaw(
+  port: number,
+  method: string,
+  path: string,
+  options: { headers?: Record<string, string>; body?: Buffer } = {}
+): Promise<{ status: number; data: unknown; raw: Buffer; headers: Headers }> {
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method,
+    headers: options.headers || {},
+    body: options.body,
+  });
+  const raw = Buffer.from(await res.arrayBuffer());
+  let data: unknown = null;
+  const ct = res.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    try {
+      data = raw.length ? JSON.parse(raw.toString('utf8')) : null;
+    } catch {
+      data = raw.toString('utf8');
+    }
+  }
+  return { status: res.status, data, raw, headers: res.headers };
 }

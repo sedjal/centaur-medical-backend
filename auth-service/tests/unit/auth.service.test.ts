@@ -188,6 +188,7 @@ test('auth.service: verifyMfa success + failures', async (t) => {
         must_change_password: false,
         mfa_enabled: true,
         mfa_required: true,
+        session_version: 4,
       },
     ],
     role_permissions: [{ role_id: 'r-admin', permission_id: 'p-users' }],
@@ -208,6 +209,7 @@ test('auth.service: verifyMfa success + failures', async (t) => {
   const ok = await authService.verifyMfa('u-admin', code);
   t.ok(ok.token);
   t.equal(ok.user.email, 'admin@test.com');
+  t.equal(ok.user.sv, 4);
 
   state.mfa_codes.push({
     id: 'mfa-2',
