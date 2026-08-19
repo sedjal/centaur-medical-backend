@@ -1,6 +1,20 @@
--- Centaur Medical — DEV/TEST database dump only. Do not use as a production database.
--- Seed credentials for knex seed come from SEED_ADMIN_PASSWORD (blocked in production
--- unless ALLOW_DEV_SEED=1). Hashes below are local samples, not production secrets.
+-- Centaur Medical — bootstrap SQL (DEV/TEST only). Do not use in production.
+--
+-- Creates schema + roles + permissions + demo users + 4 sample patients.
+-- Equivalent to: knex migrate:latest + knex seed:run (without knex_migrations table).
+--
+-- Usage:
+--   createdb centaur_medical
+--   psql -U postgres -d centaur_medical -f database.sql
+--
+-- Demo login (password for all seeded accounts): CentaurDev1
+--   sedjalkhouloud@gmail.com   — ADMIN (MFA required)
+--   lydia.sedjal@gmail.com     — DIRECTION (MFA required)
+--   rachasl720@gmail.com       — MEDECIN
+--   khouloudsed2@gmail.com     — SECRETAIRE
+--
+-- To set a custom password from .env instead:
+--   node scripts/set-local-password-from-env.js   (requires SEED_ADMIN_PASSWORD)
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -261,7 +275,8 @@ INSERT INTO roles (id, name) VALUES
   ('11111111-1111-1111-1111-111111111111', 'ADMIN'),
   ('22222222-2222-2222-2222-222222222222', 'DIRECTION'),
   ('33333333-3333-3333-3333-333333333333', 'MEDECIN'),
-  ('44444444-4444-4444-4444-444444444444', 'SECRETAIRE');
+  ('44444444-4444-4444-4444-444444444444', 'SECRETAIRE'),
+  ('55555555-5555-5555-5555-555555555555', 'MEDECIN_URGENCE');
 
 -- Permissions
 INSERT INTO permissions (id, code, description) VALUES
@@ -329,7 +344,52 @@ WHERE code IN (
   'service:general','service:urgence','service:oncologie','service:cardiologie'
 );
 
--- Users are created by knex seed (SEED_ADMIN_PASSWORD in the environment, never in this dump).
+-- MEDECIN_URGENCE
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT '55555555-5555-5555-5555-555555555555', id FROM permissions
+WHERE code IN (
+  'patients:read','patients:create','patients:update',
+  'prescriptions:read','prescriptions:create','prescriptions:cancel','medical_history:read',
+  'documents:read','documents:create','documents:delete',
+  'notifications:read','notifications:create','notifications:cancel',
+  'service:urgence',
+  'reports:read','reports:create'
+);
+
+-- Demo users (Argon2id hash of password "CentaurDev1" — see header)
+INSERT INTO users (id, email, password_hash, first_name, last_name, role_id, mfa_enabled, mfa_required) VALUES
+  (
+    'e0000001-0000-0000-0000-000000000001',
+    'sedjalkhouloud@gmail.com',
+    '$argon2id$v=19$m=65536,t=3,p=4$MP+OZaRf9ErrR3NTqi1IOA$o0g/a+JsiATqbFR6lclXaVA5JONaU3wT3LN/bUk2TH0',
+    'Khouloud', 'Sedjal',
+    '11111111-1111-1111-1111-111111111111',
+    TRUE, TRUE
+  ),
+  (
+    'e0000002-0000-0000-0000-000000000002',
+    'lydia.sedjal@gmail.com',
+    '$argon2id$v=19$m=65536,t=3,p=4$MP+OZaRf9ErrR3NTqi1IOA$o0g/a+JsiATqbFR6lclXaVA5JONaU3wT3LN/bUk2TH0',
+    'Lydia', 'Sedjal',
+    '22222222-2222-2222-2222-222222222222',
+    TRUE, TRUE
+  ),
+  (
+    'e0000003-0000-0000-0000-000000000003',
+    'rachasl720@gmail.com',
+    '$argon2id$v=19$m=65536,t=3,p=4$MP+OZaRf9ErrR3NTqi1IOA$o0g/a+JsiATqbFR6lclXaVA5JONaU3wT3LN/bUk2TH0',
+    'Racha', 'Medecin',
+    '33333333-3333-3333-3333-333333333333',
+    FALSE, FALSE
+  ),
+  (
+    'e0000004-0000-0000-0000-000000000004',
+    'khouloudsed2@gmail.com',
+    '$argon2id$v=19$m=65536,t=3,p=4$MP+OZaRf9ErrR3NTqi1IOA$o0g/a+JsiATqbFR6lclXaVA5JONaU3wT3LN/bUk2TH0',
+    'Khouloud', 'Secretaire',
+    '44444444-4444-4444-4444-444444444444',
+    FALSE, FALSE
+  );
 
 INSERT INTO patients (id, patient_code, first_name, last_name, hospitalization_date, service, status) VALUES
   ('c0000001-0000-0000-0000-000000000001', 'PT-000124', 'Ahmed', 'Benali', '2026-08-11', 'URGENCE', 'CRITICAL'),

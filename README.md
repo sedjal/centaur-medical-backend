@@ -1,12 +1,12 @@
 # Centaur Medical
 
-**Medical Records Management System — Hospital Patient Management**
+Medical Records Management System — Hospital Patient Management**
 
 A modern full-stack medical records management application built with Vue 3 (JSX), TypeScript, Restana, Knex and PostgreSQL.
 
-## Architecture
+Architecture microservices
 
-```text
+text
 Vue 3 + JSX + Axios
         ↓
    API Gateway :3000  (JWT · RBAC · Zod · Rate limit · Security Headers · CORS)
@@ -19,58 +19,63 @@ Vue 3 + JSX + Axios
         └────────────────┼────────────────┘
                          ▼
                     PostgreSQL
-```
+`
 
 Internal ports (`3001–3003`) are protected by `x-service-token`. Only the Gateway is public.
 
-## Features
+Features
 
-- Patient management across **Chirurgie Générale, Urgence, Oncologie, Cardiologie**
-- JWT authentication + **MFA for ADMIN / DIRECTION**
-- **RBAC** permissions (patients, prescriptions, users, audit, services)
-- **Prescriptions / ordonnances** (create, list, detail, cancel — soft cancel only)
-- **Historique médical** (événements métier immuables, distinct des audit logs)
-- **Isolation `service:*`** on list / get / dashboard / prescriptions / medical-history (search cannot bypass the scope)
-- **Audit logs** (`PATIENT_*`, `PRESCRIPTION_CREATED` / `PRESCRIPTION_CANCELLED`)
-- Last-ADMIN and self-delete guards; password-reset codes locked after **5 attempts**
-- **Email notifications** (NodeMailer)
+- Patient management across Chirurgie Générale, Urgence, Oncologie, Cardiologie 
+- JWT authentication + MFA for ADMIN / DIRECTION
+- RBACpermissions (patients, prescriptions, users, audit, services)
+- Prescriptions / ordonnances** (create, list, detail, cancel — soft cancel only)
+- Documents patient (upload, download, suppression — ECG, Carte de groupage, Ordonnance, Autre)
+- Comptes rendus cliniques (CRUD + suppression)
+- Historique médical(événements métier immuables, distinct des audit logs)
+- Pagination sur toutes les listes (`page`, `limit` → `{ items, total, page, limit }`)
+- equêtes optimisées (batch load medications, batch load dossiers
+- Isolation `service:*`** on list / get / dashboard / prescriptions / medical-history (search cannot bypass the scope)
+- Audit logs (`PATIENT_*`, `PRESCRIPTION_CREATED` / `PRESCRIPTION_CANCELLED`)
+- Last-ADMIN and self-delete guards; password-reset codes locked after 5 attempts 
+- Email notifications** (NodeMailer)
 - Unit tests (tape + sinon)
 - `database.sql` bootstrap script
 
-## Quick start
 
-### 1. Database
+1. Database
 
 Create DB then either:
 
 ```bash
+createdb centaur_medical
 psql -U postgres -d centaur_medical -f database.sql
 ```
 
-or:
+This single script creates the full schema, RBAC (including `MEDECIN_URGENCE`), demo users, and 4 sample patients. Demo password for all accounts: **`CentaurDev1`** (see emails in `database.sql` header). Optional: `node scripts/set-local-password-from-env.js` to replace hashes from `SEED_ADMIN_PASSWORD` in `.env`.
 
-```bash
+Or with knex (tracks migrations in `knex_migrations`):
+
+bash
 cp .env.example .env
 npm install
 npm run build -w shared
 npx knex migrate:latest --knexfile knexfile.ts
 npx knex seed:run --knexfile knexfile.ts
-```
 
-> Prefer **knex seed** so password hashes are generated from `SEED_ADMIN_PASSWORD` in the environment (never committed).
 
-### 2. Run services
+
+
+2. Run services
 
 ```bash
 npm install
 npm run build -w shared
 npm run dev
-```
+
 
 Gateway: http://127.0.0.1:3000
 
-### 3. Frontend (separate repo)
-
+3. Frontend (separate repo)
 ```bash
 cd ../centaur-medical-frontend
 npm install
@@ -79,9 +84,61 @@ npm run serve
 
 Open http://localhost:8084/
 
-## Seed credentials
+## Environment variables
 
-> ⚠️ These credentials are for **local / demo use only**. Never reuse this password or these accounts in production.
+Copier `.env.example` → `.env` à la racine du backend :
+
+```bash
+cp .env.example .env
+
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` / `DB_NAME` | — | PostgreSQL |
+| `JWT_SECRET` | — | Secret JWT (min 32 chars) |
+| `JWT_EXPIRES_IN` | `15m` | Durée token ACCESS |
+| `SERVICE_TOKEN` | — | Token inter-services (`x-service-token`) |
+| `SEED_ADMIN_PASSWORD` | — | Mot de passe des comptes seed (**ne jamais committer**) |
+| `GATEWAY_PORT` | `3000` | Port Gateway (public) |
+| `AUTH_PORT` | `3001` | Port auth-service (interne) |
+| `PATIENT_PORT` | `3002` | Port patient-service (interne) |
+| `NOTIFICATION_PORT` | `3003` | Port notification-service (interne) |
+| `AUTH_SERVICE_URL` | `http://127.0.0.1:3001` | URL auth (Gateway) |
+| `PATIENT_SERVICE_URL` | `http://127.0.0.1:3002` | URL patient (Gateway) |
+| `NOTIFICATION_SERVICE_URL` | `http://127.0.0.1:3003` | URL notification (Gateway) |
+| `NOTIFICATION_WORKER_INTERVAL_MS` | `5000` | Intervalle worker PENDING → SENT |
+| `NOTIFICATION_SSE_HEARTBEAT_MS` | `20000` | Heartbeat SSE |
+| `SMTP_*` | — | NodeMailer (MFA, welcome, reset) |
+| `FRONTEND_URL` | `http://localhost:8084` | URL frontend |
+| `CORS_ORIGIN` | `http://localhost:8084` | Origine CORS autorisée |
+| `LISTEN_HOST` | `127.0.0.1` | Bind services internes |
+| `GATEWAY_LISTEN_HOST` | `0.0.0.0` | Bind Gateway |
+| `ALLOW_DEV_SEED` | — | `1` pour autoriser seed en production |
+| `TRUST_PROXY` | — | `1` derrière reverse proxy (rate limit) |
+
+
+Services 
+
+| Workspace | Port | Rôle |
+|-----------|------|------|
+| `gateway/` | 3000 | Point d'entrée public, JWT, RBAC, proxy, rate limit, CORS |
+| `auth-service/` | 3001 | Login, MFA, JWT, users, roles, permissions |
+| `patient-service/` | 3002 | Patients, prescriptions, documents, notes cliniques, historique, audit |
+| `notification-service/` | 3003 | Notifications in-app, SSE, worker, emails (NodeMailer) |
+| `shared/` | — | Types, DB, middleware, rate limit, permissions |
+
+Commandes racine :
+
+bash
+npm run dev              # Tous les services (concurrently)
+npm run build -w shared  # Build shared (requis avant dev)
+npm test                 # Tests unitaires tous services
+npm run test:all         # Unit + intégration tous services
+
+
+Seed credentials
+
+ accounts for demo
 
 | Email | Role | Auth |
 |-------|------|------|
@@ -90,11 +147,11 @@ Open http://localhost:8084/
 | rachasl720@gmail.com | MEDECIN | JWT |
 | khouloudsed2@gmail.com | SECRETAIRE | JWT |
 
-Password: the value of `SEED_ADMIN_PASSWORD` in your environment (not stored in the repo).
+Password: lydia2001
 
-MFA / reset codes are emailed when SMTP is configured; otherwise they are **printed in the auth-service console** (dev only).
+MFA / reset codes are emailed when SMTP is configured; otherwise they are printed in the auth-service console (dev only).
 
-## API (via Gateway)
+API (via Gateway)
 
 Prefix public : **`/api/...`** (pas de `/v1`).
 
@@ -111,24 +168,83 @@ Auth:
 
 Domain:
 
-- `GET|POST /api/patients`
+- `GET|POST /api/patients` *(pagination: `page`, `limit` ; recherche: `search` ; filtre: `service`)*
 - `GET|PUT|DELETE /api/patients/:id`
 - `GET /api/patients/:id/prescriptions`
 - `GET /api/patients/:id/medical-history`
-- `GET /api/medical-history` *(filters: `patientId`, `service`, `type`, `from`, `to`)*
-- `GET /api/prescriptions` *(filters: `patientId`, `service`, `status`, `from`, `to`)*
+- `GET|POST /api/patients/:id/documents`
+- `GET /api/patients/:id/documents/:docId/file`
+- `DELETE /api/patients/:id/documents/:docId`
+- `GET|POST /api/patients/:id/clinical-notes`
+- `GET /api/patients/:id/clinical-notes/:noteId`
+- `DELETE /api/patients/:id/clinical-notes/:noteId`
+- `GET /api/medical-history` *(pagination + filters: `patientId`, `service`, `type`, `from`, `to`)*
+- `GET /api/prescriptions` *(pagination + filters: `patientId`, `service`, `status`, `from`, `to`)*
 - `GET /api/prescriptions/:id`
 - `POST /api/prescriptions`
 - `PATCH /api/prescriptions/:id/cancel`
 - `GET /api/dashboard/stats`
 - `GET /api/audit-logs`
-- `GET /api/notifications` *(filters: `read`, `status`, `type`, `patientId`)*
+- `GET /api/notifications` *(pagination + filters: `read`, `status`, `type`, `patientId`)*
+- `GET /api/notifications/stream` *(SSE)*
 - `GET /api/notifications/:id`
 - `POST /api/notifications`
 - `PATCH /api/notifications/:id/read`
 - `PATCH /api/notifications/:id/cancel`
 
-### Prescriptions
+### Pagination
+
+Toutes les listes paginées acceptent :
+
+| Param | Défaut | Max | Description |
+|-------|--------|-----|-------------|
+| `page` | `1` | — | Numéro de page (1-indexed) |
+| `limit` | `50` | `100` | Nombre d'éléments par page |
+
+Réponse :
+
+```json
+{
+  "items": [ /* ... */ ],
+  "total": 142,
+  "page": 1,
+  "limit": 50
+}
+```
+
+Endpoints paginés : `GET /api/patients`, `GET /api/prescriptions`, `GET /api/notifications`, `GET /api/medical-history`.
+
+`GET /api/patients/:id/prescriptions` retourne un **tableau** (toutes les ordonnances du patient, max 100).
+
+Recherche patients : `GET /api/patients?search=cherif` — recherche SQL `ILIKE` sur nom, prénom, code patient (dans tout le périmètre service, pas seulement la page courante).
+
+Documents patient
+
+Permissions :
+
+| Permission | Usage |
+|------------|--------|
+| `documents:read` | Lister / télécharger |
+| `documents:create` | Upload |
+| `documents:delete` | Supprimer |
+
+Types : `ECG`, `CARTE_GROUPE` (affiché « Carte de groupage »), `ORDONNANCE`, `AUTRE`.
+
+Upload : `POST /api/patients/:id/documents` (multipart, max 10 Mo, PDF/PNG/JPG).
+
+### Comptes rendus cliniques
+
+Permissions :
+
+| Permission | Usage |
+|------------|--------|
+| `reports:read` | Lister / consulter |
+| `reports:create` | Créer |
+| `reports:create` | Supprimer (même permission que création) |
+
+Routes : `GET|POST /api/patients/:id/clinical-notes`, `DELETE /api/patients/:id/clinical-notes/:noteId`.
+
+Prescriptions
 
 Permissions :
 
@@ -140,10 +256,10 @@ Permissions :
 
 Rôles seed :
 
-- **MEDECIN** / **ADMIN** : read + create + cancel
-- **DIRECTION** / **SECRETAIRE** : read uniquement
+- MEDECIN / ADMIN: read + create + cancel
+- DIRECTION / SECRETAIRE : read uniquement
 
-`doctorId` est **toujours** pris depuis le JWT (`x-user-id`) — jamais depuis le body.
+doctorId : est toujours pris depuis le JWT (`x-user-id`)  jamais depuis le body.
 
 Payload `POST /api/prescriptions` :
 
@@ -162,13 +278,13 @@ Payload `POST /api/prescriptions` :
     }
   ]
 }
-```
+
 
 Erreurs : `400` validation, `403` permission / service, `404` patient ou ordonnance, `409` déjà annulée (ou patient avec ordonnances à la suppression).
 
 Pas de `DELETE` physique sur les ordonnances.
 
-### Medical history
+ Medical history
 
 Permission : `medical_history:read` (ADMIN, DIRECTION, MEDECIN, SECRETAIRE).
 
@@ -184,7 +300,7 @@ Types : `HOSPITALIZATION`, `CONSULTATION`, `DIAGNOSIS`, `PRESCRIPTION`, `RECORD_
 
 La création d’un patient n’émet **pas** `HOSPITALIZATION` (`hospitalization_date` est un champ administratif, pas un séjour).
 
-### Notifications (in-app)
+Notifications (in-app)
 
 Permissions :
 
@@ -213,13 +329,13 @@ Destinataire : un **compte personnel actif** (pas un patient). Qui peut envoyer 
 
 Timezone : colonnes `timestamptz`. Le frontend peut envoyer `2026-08-15T22:00:00+01:00` ; à l’insert Node stocke l’équivalent UTC (`Date#toISOString()`). Le worker compare en UTC — indépendant du `TimeZone` de session PostgreSQL.
 
-```bash
+bash
 NOTIFICATION_WORKER_INTERVAL_MS=5000
-```
+
 
 Tests worker :
 
-```bash
+bash
 npm test -w notification-service
 npm run test:all -w notification-service
 ```
@@ -240,71 +356,72 @@ Roles:
 - `PUT    /api/roles/:id/permissions`
 - `DELETE /api/roles/:id`
 
-### JWT `purpose`
+ JWT `purpose`
 
 Les JWT sont typés par un champ `purpose`. Les routes protégées du gateway exigent strictement `purpose === ACCESS`. Les tokens `MFA`, `PASSWORD_RESET` et `CHANGE_PASSWORD` sont limités à leur endpoint respectif et **ne peuvent pas** être utilisés comme tokens d’accès (`/auth/me`, `/patients`, etc.).
 
-## Tests
+Tests
 
-```bash
+bash
+# Tous les services
+npm test
+npm run test:all
+
+Par service
 npm test -w auth-service
-npm run test:integration -w auth-service
-npm run test:all -w auth-service
-npm run test:coverage -w auth-service   # auth.service.ts ≥ 70 % (unit + intégration)
-npm test -w gateway
 npm test -w patient-service
+npm test -w gateway
 npm test -w notification-service
+
+Intégration
+npm run test:integration -w auth-service
+npm run test:integration -w patient-service
+npm run test:integration -w gateway
+npm run test:integration -w notification-service
+
+Couverture
+npm run test:coverage -w auth-service
+npm run test:coverage -w patient-service
+npm run test:coverage -w gateway
 ```
 
-Stack unitaire : **tape** (TAP) + **sinon** (stubs/spies) + **tsx** + **c8**.
+Stack : tape (TAP) + sinon + tsx** + c8.
 
-Structure des tests :
+Structure par service
 
-```text
-gateway/tests/
-├── unit/           # requireAuth, rate-limit, headers
-└── integration/    # HTTP réel : login, /auth/me, /patients (401 vs 403)
-
+text
 auth-service/tests/
-├── unit/           # password, OTP, JWT, RBAC, MFA purpose, last-admin, reset attempts
-└── integration/    # service-token : requireServiceToken sur routes publiques auth
+├── unit/           # password, OTP, JWT, RBAC, MFA, session, admin guards
+└── integration/    # HTTP login/MFA/forgot + service-token
 
 patient-service/tests/
-├── patient.test.ts     # validateSpecialty
-└── isolation.test.ts   # service:* list / get 403 / dashboard / search / PATIENT_READ
+├── unit/           # patient, prescription, documents, clinical-notes, medical-history
+├── integration/    # HTTP flows (prescriptions, documents, notes, history)
+├── patient.test.ts
+└── isolation.test.ts
+
+gateway/tests/
+├── unit/           # rate-limit, auth-purpose, gateway helpers
+└── integration/    # login, /auth/me, authorization, patient isolation, multipart
+
+notification-service/tests/
+├── unit/           # notification CRUD, scheduler, worker, SSE, mailer
+├── integration/    # HTTP + worker + business events + SSE
+└── e2e/            # isolation, security, SSE, business notifications
 ```
 
-```bash
-npm test -w gateway
-npm run test:integration -w gateway
-npm run test:all -w gateway
-```
+ Couverture principale
 
-| Fichier | Couvre |
-|---------|--------|
-| `unit/password-policy.test.ts` | règles mot de passe |
-| `unit/otp-security.test.ts` | OTP hash / generate |
-| `unit/jwt-purpose.test.ts` | ACCESS / MFA / CHANGE_PASSWORD / PASSWORD_RESET |
-| `unit/password.test.ts` | Argon2 |
-| `unit/permissions.test.ts` | RBAC |
-| `unit/login.test.ts` | formes des résultats login |
-| `unit/mfa-purpose.test.ts` | purpose MFA strict |
-| `unit/admin-reset.test.ts` | self-delete, dernier ADMIN, reset 5 tentatives |
-| `unit/auth.service.test.ts` | login, MFA, reset, users, roles (DB mockée) |
-| `unit/middleware.test.ts` | requireServiceToken, readInternalUser |
-| `integration/auth-flow.integration.test.ts` | HTTP login / MFA / forgot + auth.service |
-| `gateway/tests/unit/rate-limit.test.ts` | rate limiter |
-| `gateway/tests/unit/auth-purpose.test.ts` | ACCESS only (unit) |
-| `gateway/tests/integration/auth-login.test.ts` | POST /api/auth/login |
-| `gateway/tests/integration/auth-me.test.ts` | GET /api/auth/me + purposes |
-| `gateway/tests/integration/authorization.test.ts` | 401 vs 403 sur /patients |
-| `auth-service/tests/integration/service-token.integration.test.ts` | requireServiceToken login/MFA/forgot/reset |
-| `patient.test.ts` | validateSpecialty |
-| `isolation.test.ts` | URGENCE vs CARDIOLOGIE + PATIENT_READ |
+| Service | Fichiers clés |
+|---------|---------------|
+| **auth-service** | `password-policy`, `otp-security`, `jwt-purpose`, `permissions`, `auth.service`, `session`, `admin-reset`, `service-token.integration` |
+| **patient-service** | `patient.service`, `prescription.service`, `documents.service`, `clinical-notes.service`, `medical-history.service`, `isolation.test`, `prescription.integration`, `documents.integration`, `clinical-notes.integration` |
+| **gateway** | `rate-limit`, `auth-purpose`, `auth-login`, `auth-me`, `authorization`, `patient-isolation`, `documents-multipart` |
+| **notification-service** | `notification.service`, `notification.scheduler`, `notification.worker`, `notification-sse`, `notifications.integration`, `notifications.worker.integration` |
 
-## Security notes
+Security notes
 
-### Authentication & authorisation
+ Authentication & authorisation
 
 1. Gateway validates JWT + RBAC + rate-limits auth routes
 2. Injects `x-service-token` + identity headers on every proxied request
@@ -316,72 +433,5 @@ npm run test:all -w gateway
 8. `service:*` scopes **reads** (`listPatients`, `getPatient` → 403 hors périmètre, dashboard). Search never bypasses the filter.
 9. `DELETE /users/:id` refuses self-delete and the last active ADMIN (403). Reset codes lock after 5 attempts (429).
 
-### Security headers (gateway)
 
-Restana is not Express, so the gateway does **not** use the `helmet` package. It sets baseline headers manually on every response (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `X-DNS-Prefetch-Control`, `Cross-Origin-Resource-Policy`).
 
-### CORS
-
-`CORS_ORIGIN` **must** be set to an explicit origin in production (e.g. `https://app.centaur-medical.com`).
-The gateway refuses to start — or respond with permissive CORS — if `CORS_ORIGIN` is absent or `*` when `NODE_ENV=production`.
-In development the wildcard fallback is kept for DX convenience.
-
-`.env.example` already ships with `CORS_ORIGIN=http://localhost:8084` as a starting point.
-
-### Network isolation
-
-Only the **gateway (port 3000)** should be reachable from the internet (or from the load balancer / reverse proxy).
-Internal services must **not** be exposed publicly.
-
-| Env | Auth / Patient / Notification | Gateway |
-|-----|-------------------------------|---------|
-| DEV | `127.0.0.1` (default) | `0.0.0.0` |
-| TEST | test apps bind ephemeral `127.0.0.1` | test apps ephemeral |
-| DOCKER | `LISTEN_HOST=0.0.0.0` (do **not** publish 3001–3003) | `0.0.0.0`, publish 3000 only |
-| PRODUCTION | `127.0.0.1` unless `LISTEN_HOST` is set | `0.0.0.0` (or `GATEWAY_LISTEN_HOST`) |
-
-In Docker Compose, do **not** publish ports 3001–3003 to the host (`ports`). Use `expose` so they stay on the internal network. Only publish 3000:
-
-```yaml
-services:
-  gateway:
-    ports:
-      - "3000:3000"   # public
-    environment:
-      LISTEN_HOST: "0.0.0.0"
-  auth-service:
-    expose: ["3001"]  # internal only — do not use `ports`
-    environment:
-      LISTEN_HOST: "0.0.0.0"
-  patient-service:
-    expose: ["3002"]
-    environment:
-      LISTEN_HOST: "0.0.0.0"
-  notification-service:
-    expose: ["3003"]
-    environment:
-      LISTEN_HOST: "0.0.0.0"
-```
-
-### Session / token storage (frontend)
-
-The frontend is a **Vue plugin** (often hosted on another origin). ACCESS JWTs stay in **`localStorage`** (`centaur_token`) and are sent as **`Authorization: Bearer`**. HttpOnly cookies were evaluated in Phase 20 and **not** adopted (cross-origin plugin + SSE + CSRF + dual-auth would be a partial, breaking migration).
-
-**Session model:**
-- ACCESS JWT TTL defaults to **`15m`** (`JWT_EXPIRES_IN`).
-- Claim `sv` matches `users.session_version`. Logout, password change/reset, deactivate, role change, and role-permission updates bump `sv` and invalidate outstanding ACCESS tokens immediately.
-- Frontend refreshes ACCESS about every 10 minutes while logged in (`POST /api/auth/refresh`).
-- SSE uses `GET /api/notifications/stream` with the same Bearer token (never `?access_token=`).
-- XSS can still steal a Bearer token until TTL or `sv` bump; keep a short ACCESS TTL.
-
-`knex seed` is **blocked in production** unless `ALLOW_DEV_SEED=1`. User passwords come from `SEED_ADMIN_PASSWORD` (never a baked-in production secret).
-
-### Rate limiting
-
-The gateway rate limiter is **in-memory** (`shared/src/rateLimit.ts`). That is correct for a **single Node process**.
-
-**Production**: use **Redis** (or an equivalent shared store) so limits survive restarts and apply across multiple gateway instances.
-
-### Out of scope (oral)
-
-FHIR, HL7, NIR/INS, HDS, PACS, Kubernetes — not part of this junior full-stack exercise.
